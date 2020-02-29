@@ -311,7 +311,7 @@ class TrafficLightGroup(TrafficLight):
             temperr = False
 
         if self.remote.seen() and not self.i_am_master:
-            self.logger.info("Will try to sync from master remote.give_way={}, remote.temp_error={}".format(self.remote.temp_error, self.remote.give_way))
+            self.logger.info("Will try to sync from master remote.give_way={}, remote.temp_error={}".format(self.remote.give_way, self.remote.temp_error))
             # In case we don't have a local error, check remote side
             # if something is wrong there.
             if good in (True, None) and not self.i_am_master:
