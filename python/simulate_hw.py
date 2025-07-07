@@ -2,6 +2,7 @@ import os
 import threading
 import time
 import pty
+import select
 
 
 class SimBase:
@@ -13,7 +14,8 @@ class SimBase:
         by clients and sets up the pipe.
         Also starts up a thread for handling input from clients.
         """
-        self.pts, self.pipe = self._get_pts()
+        self.pts, self.pipe, self.poll = self._get_pts()
+        self.ready = False
         self._task = threading.Thread(target=self.reader_task, daemon=True)
         self._task.start()
 
@@ -24,27 +26,49 @@ class SimBase:
         """
         (master, slave) = pty.openpty()
         slave_pts = os.ttyname(slave)
-        return (slave_pts, master)
+
+        # Open and close to force HUP flag!
+        os.close(slave)
+
+        pollobject = select.epoll()
+        pollobject.register(master, select.POLLHUP | select.POLLIN | select.EPOLLET)
+        return (slave_pts, master, pollobject)
 
     def reader_task(self):
         while True:
-            line = os.read(self.pipe, 1)
-            print("got ", line)
-            self.process(line)
+            tuples = self.poll.poll(None)
+            for fd, events in tuples:
+                if events & select.POLLHUP:
+                    self.ready = False
+                    continue
+                else:
+                    self.ready = True
+
+                if events & select.POLLIN:
+                    data = os.read(self.pipe, 1)
+                    self.process(data.decode("latin-1"))
 
     def process(self, line):
         pass
 
 
 class SimController(SimBase):
-    def process(self, line):
-        print(line.strip().split(" "))
+    def __init__(self):
+        SimBase.__init__(self)
+
+    def main(self):
+        while True:
+            time.sleep(1)
+            os.write(self.pipe, b".")
+
+    def process(self, char):
+        print(char)
 
     def press_green(self):
-        self.pipe.write(b"G")
+        os.write(self.pipe, b"G")
 
     def press_red(self):
-        self.pipe.write(b"g")
+        os.write(self.pipe, b"g")
 
 
 class SimLight(SimBase):
@@ -67,19 +91,19 @@ class SimLight(SimBase):
         """Emulate the "serial_statemachine" for the JAL-Firmware"""
         for tmp in line.strip():
             if self.serial_state == "SERIAL_IDLE":
-                if tmp == b"G":
+                if tmp == "G":
                     self.request_green = True
-                if tmp == b"g":
+                if tmp == "g":
                     self.request_green = False
-                if tmp == b"e":
+                if tmp == "e":
                     self.request_temp_error = True
-                if tmp == b"E":
+                if tmp == "E":
                     self.request_temp_error = False
-                if ((tmp == b"\r") | (tmp == b"\n")) & (
+                if ((tmp == "\r") | (tmp == "\n")) & (
                     self.serial_state == "SERIAL_READ_DATA"
                 ):
                     self.serial_state = "SERIAL_IDLE"
-                if tmp == 27:
+                if ord(tmp) == 27:
                     self.serial_state = "SERIAL_IDLE"
 
     def analog_statemachine(self):
@@ -194,6 +218,8 @@ class SimLight(SimBase):
     def main(self):
         while True:
             time.sleep(1 / self.second)
+            if not self.ready:
+                continue
             self.analog_cycles += 1
             self.pulse += 1
             self.traffic_statemachine()
