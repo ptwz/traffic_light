@@ -14,10 +14,13 @@ class SimBase:
         by clients and sets up the pipe.
         Also starts up a thread for handling input from clients.
         """
-        self.pts, self.pipe, self.poll = self._get_pts()
+        # self.pts, self.pipe, self.poll =
+        self._get_pts()
         self.ready = False
-        self._task = threading.Thread(target=self.reader_task, daemon=True)
-        self._task.start()
+        self._reader_task = threading.Thread(target=self.reader_task, daemon=True)
+        self._reader_task.start()
+        self._main_task = threading.Thread(target=self.main, daemon=True)
+        self._main_task.start()
 
     def _get_pts(self):
         """
@@ -25,14 +28,16 @@ class SimBase:
         of the newly opened pts and the pipe for own use
         """
         (master, slave) = pty.openpty()
-        slave_pts = os.ttyname(slave)
+        self.pts = os.ttyname(slave)
 
         # Open and close to force HUP flag!
         os.close(slave)
 
         pollobject = select.epoll()
         pollobject.register(master, select.POLLHUP | select.POLLIN | select.EPOLLET)
-        return (slave_pts, master, pollobject)
+
+        self.pipe = master
+        self.poll = pollobject
 
     def reader_task(self):
         while True:
@@ -50,6 +55,10 @@ class SimBase:
 
     def process(self, line):
         pass
+
+    def main(self):
+        while True:
+            time.sleep(10)
 
 
 class SimController(SimBase):
@@ -202,8 +211,23 @@ class SimLight(SimBase):
                 self.traffic_state = "TRAFFIC_FAIL"
 
     def check_plausible(self):
-        # TODO Implement me!
+        if self.green and self.sense["green"] < 500:
+            return 1
+        if self.red and self.sense["red"] < 500:
+            return 1
+        if self.yellow and self.sense["yellow"] < 500:
+            return 1
         return 0
+
+    def fail_bulb(self, name):
+        if name not in self.bulb_resistance:
+            raise KeyError(name)
+        self.bulb_resistance[name] = 1e6
+
+    def unfail_bulb(self, name):
+        if name not in self.bulb_resistance:
+            raise KeyError(name)
+        self.bulb_resistance[name] = 1
 
     def emulate_hardware(self):
         self.batt_voltage -= self.discarge_rate
@@ -218,18 +242,17 @@ class SimLight(SimBase):
     def main(self):
         while True:
             time.sleep(1 / self.second)
-            if not self.ready:
-                continue
             self.analog_cycles += 1
             self.pulse += 1
             self.traffic_statemachine()
             self.emulate_hardware()
 
-            telegram = f"{self.traffic_state} {self.batt_voltage} {self.error_state} {self.sense['red']} {self.sense['yellow']} {self.sense['green']}\r\n"
+            if self.ready:
+                telegram = f"{self.traffic_state} {self.batt_voltage} {self.error_state} {self.sense['red']} {self.sense['yellow']} {self.sense['green']}\r\n"
 
-            os.write(self.pipe, telegram.encode("latin-1"))
+                os.write(self.pipe, telegram.encode("latin-1"))
 
 
 x = SimLight()
 print(x.pts)
-x.main()
+time.sleep(100)
