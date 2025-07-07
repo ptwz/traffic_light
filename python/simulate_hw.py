@@ -1,6 +1,7 @@
 import os
 import threading
 import time
+import pty
 
 
 class SimBase:
@@ -12,7 +13,7 @@ class SimBase:
         by clients and sets up the pipe.
         Also starts up a thread for handling input from clients.
         """
-        self.pts, self.pipe_rx, self.pipe_tx = self._get_pts()
+        self.pts, self.pipe = self._get_pts()
         self._task = threading.Thread(target=self.reader_task, daemon=True)
         self._task.start()
 
@@ -21,16 +22,14 @@ class SimBase:
         Allocates a pts device, enable its io and return both the name
         of the newly opened pts and the pipe for own use
         """
-        fd = os.open("/dev/ptmx", os.O_RDWR)
-        os.grantpt(fd)
-        os.unlockpt(fd)
-        slave_pts = os.ptsname(fd)
-        pipe_rx = os.fdopen(fd, "r")
-        pipe_tx = os.fdopen(fd, "w")
-        return (slave_pts, pipe_rx, pipe_tx)
+        (master, slave) = pty.openpty()
+        slave_pts = os.ttyname(slave)
+        return (slave_pts, master)
 
     def reader_task(self):
-        for line in self.pipe_rx:
+        while True:
+            line = os.read(self.pipe, 1)
+            print("got ", line)
             self.process(line)
 
     def process(self, line):
@@ -42,10 +41,10 @@ class SimController(SimBase):
         print(line.strip().split(" "))
 
     def press_green(self):
-        self.pipe_tx.write("G")
+        self.pipe.write(b"G")
 
     def press_red(self):
-        self.pipe_tx.write("g")
+        self.pipe.write(b"g")
 
 
 class SimLight(SimBase):
@@ -68,19 +67,19 @@ class SimLight(SimBase):
         """Emulate the "serial_statemachine" for the JAL-Firmware"""
         for tmp in line.strip():
             if self.serial_state == "SERIAL_IDLE":
-                if tmp == "G":
+                if tmp == b"G":
                     self.request_green = True
-                if tmp == "g":
+                if tmp == b"g":
                     self.request_green = False
-                if tmp == "e":
+                if tmp == b"e":
                     self.request_temp_error = True
-                if tmp == "E":
+                if tmp == b"E":
                     self.request_temp_error = False
-                if ((tmp == "\r") | (tmp == "\n")) & (
+                if ((tmp == b"\r") | (tmp == b"\n")) & (
                     self.serial_state == "SERIAL_READ_DATA"
                 ):
                     self.serial_state = "SERIAL_IDLE"
-                if ord(tmp) == 27:
+                if tmp == 27:
                     self.serial_state = "SERIAL_IDLE"
 
     def analog_statemachine(self):
@@ -202,8 +201,9 @@ class SimLight(SimBase):
 
             telegram = f"{self.traffic_state} {self.batt_voltage} {self.error_state} {self.sense['red']} {self.sense['yellow']} {self.sense['green']}\r\n"
 
-            self.pipe_tx.write(telegram)
+            os.write(self.pipe, telegram.encode("latin-1"))
 
 
 x = SimLight()
+print(x.pts)
 x.main()
