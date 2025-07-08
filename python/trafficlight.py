@@ -2,12 +2,11 @@ import json
 import logging
 import random
 import os
+from queue import Queue
+from time import time
+from serial.threaded import ReaderThread, LineReader
 import serial
 import serial.threaded
-from queue import Queue
-from serial.threaded import ReaderThread, LineReader
-from threading import Thread
-from time import time
 
 
 class TrafficLight:
@@ -159,9 +158,9 @@ class TrafficLightController:
     @classmethod
     def open(cls, port, group):
         controller = cls()
-        serial = serial.serial_for_url(port, baudrate=19200, timeout=1)
-        ReaderThread(serial, TrafficLightControllerReceiver)
-        controller.set_serial(serial)
+        ser = serial.serial_for_url(port, baudrate=19200, timeout=1)
+        ReaderThread(ser, TrafficLightControllerReceiver)
+        controller.set_serial(ser)
         controller.setGroup(group)
         return controller
 
@@ -176,7 +175,7 @@ class TrafficLightController:
         self.group = group
 
     def line_received(self, line):
-        line = line.decode("utf-8")
+        line = line.decode("latin-1")
         logging.debug("TrafficLightController: received: {}".format(line))
         for c in line:
             if c == "g":
@@ -371,8 +370,8 @@ class TrafficLightDummy(TrafficLight):
 
     def __init__(self, fail_probability):
         TrafficLight.__init__(self)
-        self.fail_loop = task.LoopingCall(self.simulate_failures)
-        self.run_loop = task.LoopingCall(self.run)
+        # self.fail_loop = task.LoopingCall(self.simulate_failures)
+        # self.run_loop = task.LoopingCall(self.run)
         self.fail_probability = fail_probability
         self.state = 0
         self.fail_comm = False
@@ -462,7 +461,6 @@ class TrafficLightRemote(TrafficLight):
     def __init__(self, url, interval):
         TrafficLight.__init__(self)
         self.poll_loop = task.LoopingCall(self.poll_remote)
-        self.agent = Agent(reactor)
         self.remote_url = url
         self.running_requests = {}
         self.error_count = 0
@@ -565,8 +563,45 @@ class TrafficLightRemote(TrafficLight):
             self.error_count += 1
 
 
-class TrafficLightSerial(basic.LineReceiver, TrafficLight):
-    delimiter = "\n".encode("ascii")
+class TrafficLightSerialReceiver(LineReader):
+    def __init__(self):
+        super(LineReader, self).__init__(self)
+        self.logger = logging.getLogger("TrafficLightSerialReceiver")
+        self.parent = None
+
+    def connection_made(self, transport):
+        super(LineReader, self).connection_made(transport)
+
+    def set_parent(self, parent):
+        self.parent = parent
+
+    def handle_line(self, line):
+        # Ignore blank lines
+        if not line:
+            return
+        try:
+            parent = self.parent
+            if not self.parent:
+                return
+            line = line.decode("ascii").strip()
+            (
+                parent.state,
+                parent.batt_voltage,
+                parent.error_state,
+                parent.lamp_currents[0],
+                parent.lamp_currents[1],
+                parent.lamp_currents[2],
+            ) = line.split(" ")
+            parent.last_seen = time()
+        except (ValueError, UnicodeDecodeError):
+            self.logger.info("Received garbled line")
+
+    def connection_lost(self, exc):
+        self.logger.write("port closed\n")
+
+
+class TrafficLightSerial(TrafficLight):
+    delimiter = b"\n"
 
     config_map = {"min_on_current": 0, "max_on_current": 1, "max_off_current": 2}
 
@@ -578,43 +613,27 @@ class TrafficLightSerial(basic.LineReceiver, TrafficLight):
         pass
 
     @classmethod
-    def open(cls, name, port, reset_pin=None, reactor=reactor):
+    def open(cls, name, port, reset_pin=None):
         local_light = cls()
         local_light.set_logger(logging.getLogger(name))
-        serial = SerialPort(
-            baudrate=cls.baud,
-            deviceNameOrPortNumber=port,
+        ser = serial.Serial(
+            port,
+            cls.baud,
             protocol=local_light,
-            reactor=reactor,
         )
-        local_light.set_serial(serial)
+        local_light.reader_thread = ReaderThread(ser, TrafficLightSerialReceiver)
+        local_light.set_serial(ser)
         local_light.set_port(port)
         local_light.set_reset(reset_pin)
-        local_light.reactor = reactor
         local_light.send_update()
-        # reactor.call_later(cls.rx_timeout, local_light.timed_out)
         return local_light
 
     def reopen(self):
         """
-        Tries to reestablish a serial link in case of HW issues
+        Establish a reader/writer thread
         """
-        print(dir(self.serial))
-
-        self.serial = SerialPort(
-            baudrate=self.baud,
-            deviceNameOrPortNumber=self.port,
-            protocol=self,
-            reactor=self.reactor,
-        )
-
-    def lineLengthExceeded(self, line):
-        logging.error("Line length exceeded/codeDecodeErrorbaud rate error?")
-        print(self.serial)
-        self.serial.loseConnection()
-        self.serial.stopReading()
-        self.reactor.callLater(1, self.reopen)
-        # self.reopen()
+        self.serial = serial.Serial(self.port, self.baud)
+        self.reader_thread = ReaderThread(self.serial, TrafficLightSerialReceiver)
 
     def set_port(self, port):
         self.port = port
@@ -634,41 +653,22 @@ class TrafficLightSerial(basic.LineReceiver, TrafficLight):
         except Exception as e:
             logging.error("Could not open/write exports in gpiofs: {}".format(e))
 
-    def line_received(self, line):
-        # Ignore blank lines
-        if not line:
-            return
-        try:
-            line = line.decode("ascii").strip()
-            (
-                self.state,
-                self.batt_voltage,
-                self.error_state,
-                self.lamp_currents[0],
-                self.lamp_currents[1],
-                self.lamp_currents[2],
-            ) = line.split(" ")
-            self.last_seen = time()
-        except (ValueError, UnicodeDecodeError):
-            logging.info("Received garbled line")
-        # logging.warning("update myself: {}".format(self))
-
     def set_config(self, param, value):
         if param in self.config_map:
             cmd = "s{}={}".format(self.config_map[param], int(value))
-            self.sendLine(cmd)
+            self.reader_thread.write(cmd.encode("ascii"))
         else:
             raise ValueError("Unknown parameter {}".format(param))
 
     def send_update(self):
         if self.give_way:
-            self.sendLine("G".encode("ascii"))
+            self.reader_thread.write("G".encode("ascii"))
         else:
-            self.sendLine("g".encode("ascii"))
+            self.reader_thread.write("g".encode("ascii"))
         if self.temp_error:
-            self.sendLine("E".encode("ascii"))
+            self.reader_thread.write("E".encode("ascii"))
         else:
-            self.sendLine("e".encode("ascii"))
+            self.reader_thread.write("e".encode("ascii"))
 
     def service_watchdog(self):
         self.send_update()
