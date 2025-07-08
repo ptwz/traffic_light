@@ -42,6 +42,7 @@ def bulb_defective(context, color, name):
 @when("I turn the traffic light {name} on")
 def turn_light_on(context, name):
     assert name in context.traffic_lights
+    context.traffic_lights[name]["hardware"].switch_on()
     # Start up hardware first, then br`ing up "pi" if any
 
 
@@ -49,18 +50,31 @@ def turn_light_on(context, name):
 def turn_on_delayed(context, name, duration):
     assert name in context.traffic_lights
     time.sleep(int(duration))
+    context.traffic_lights[name]["hardware"].switch_on()
 
 
 @when("wait for {name} to settle")
 def wait_settle(context, name):
     assert name in context.traffic_lights
+    hw = context.traffic_lights[name]["hardware"]
+    states = []
+    count = 0
+    while len(set(states)) != 1 or len(states) < 10:
+        count += 1
+        time.sleep(1)
+        states.append((hw.red, hw.yellow, hw.green))
+        if len(states) > 10:
+            states.pop(0)
+        assert count < 30
+    return
 
 
-@then("Then the {color} light of {name} must try to flash in {time} second rhythm")
+@then("the {color} light of {name} must try to flash in {time} second rhythm")
 def check_blink(context, color, name, time):
     pass
 
 
 @then("the {color} light of {name} must be on permanently")
 def check_on(context, color, name):
-    pass
+    # TODO: Check if permanent!!
+    assert context.traffic_lights[name]["hardware"].is_on(color)

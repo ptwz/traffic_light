@@ -92,13 +92,17 @@ class SimLight(SimBase):
         self.batt_voltage = 13.7
         self.discarge_rate = 1e-3 / self.second
         self.bulb_resistance = {"red": 1, "yellow": 1, "green": 1}
+        self.sense = {"red": 0, "yellow": 0, "green": 0}
         self.pulse = 0
         self.analog_cycles = 0
         self.error_state = 0
+        self.enable = False
 
     def process(self, line):
         """Emulate the "serial_statemachine" for the JAL-Firmware"""
         for tmp in line.strip():
+            if not self.enable:
+                continue
             if self.serial_state == "SERIAL_IDLE":
                 if tmp == "G":
                     self.request_green = True
@@ -219,6 +223,9 @@ class SimLight(SimBase):
             return 1
         return 0
 
+    def is_on(self, color):
+        return self.sense[color] > 500
+
     def fail_bulb(self, name):
         if name not in self.bulb_resistance:
             raise KeyError(name)
@@ -239,9 +246,17 @@ class SimLight(SimBase):
             tmp[name] = 1000 * state / self.bulb_resistance[name]
         self.sense = tmp
 
+    def switch_on(self):
+        self.enable = True
+
+    def switch_off(self):
+        self.enable = False
+
     def main(self):
         while True:
             time.sleep(1 / self.second)
+            if not self.enable:
+                continue
             self.analog_cycles += 1
             self.pulse += 1
             self.traffic_statemachine()
