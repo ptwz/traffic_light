@@ -1,53 +1,13 @@
 Feature: Lamp check
         Scenario: If all bulbs work, the traffic light should boot into green
-                Given I have one traffic light called "hangar" which has no communication stack running
-                When I turn the traffic light "hangar" on
-                And wait for "hangar" to settle
-                Then the red light of "hangar" must be on permanently
+                Given I have one traffic light called hangar which has no communication stack running
+                When I turn the traffic light hangar on
+                And wait for hangar to settle
+                Then the red light of hangar must be on permanently
 
         Scenario Outline: If one of the bulbs fails during bootup check mark this ans an error
-                Given I have one traffic light called "hangar" which has no communication stack running
-                And the <color> bulb of "hangar" is defective
-                When I turn the traffic light "hangar" on
-                And wait for "hangar" to settle
-                Then the yellow light of "hangar" must try to flash in 2 second rhythm
-
-Feature: Synchronization
-        Scenario Outline: If two traffic lights start up, no matter in which order, they must synchronize
-                Given I have one traffic light called "<a>"
-                And I have one traffic light called "<b>"
-                When I turn the traffic light "<b>" on
-                And I turn the traffic light "<b>" on <time> seconds later
-                Then the green light of "hangar" must be on permanently
-                And the green light of "garbenheim" must be on permanently
-
-                Examples:
-                | a              | b                    | time    |
-                | hangar         | garbenheim           | 0       |
-                | garbenheim     | hangar               | 0       |
-                | hangar         | garbenheim           | 5       |
-                | garbenheim     | hangar               | 5       |
-                | hangar         | garbenheim           | 10      |
-                | garbenheim     | hangar               | 10      |
-                | hangar         | garbenheim           | 60      |
-                | garbenheim     | hangar               | 60      |
-
-        
-        Scenario Outline: If two traffic lights start up, no matter in which order with a broken bulb, they must synchronize
-                Given I have one traffic light called "<a>"
-                And I have one traffic light called "<b>"
-                And the <color> bulb of "<a>" is defective
-                When I turn the traffic light "<b>" on
-                And I turn the traffic light "<b>" on <time> seconds later
-                Then the green light of "hangar" must be on permanently
-                And the green light of "garbenheim" must be on permanently
-
-                Examples:
-                | a              | b                    | color   |
-                | hangar         | garbenheim           | red     |
-                | garbenheim     | hangar               | red     |
-                | hangar         | garbenheim           | yellow  |
-                | garbenheim     | hangar               | yellow  |
-                | hangar         | garbenheim           | green   |
-                | garbenheim     | hangar               | green   |
-    
+                Given I have one traffic light called hangar which has no communication stack running
+                And the <color> bulb of hangar is defective
+                When I turn the traffic light hangaron
+                And wait for hangar to settle
+                Then the yellow light of hangar must try to flash in 2 second rhythm

@@ -251,8 +251,3 @@ class SimLight(SimBase):
                 telegram = f"{self.traffic_state} {self.batt_voltage} {self.error_state} {self.sense['red']} {self.sense['yellow']} {self.sense['green']}\r\n"
 
                 os.write(self.pipe, telegram.encode("latin-1"))
-
-
-x = SimLight()
-print(x.pts)
-time.sleep(100)
