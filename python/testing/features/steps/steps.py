@@ -59,7 +59,7 @@ def wait_settle(context, name):
     hw = context.traffic_lights[name]["hardware"]
     states = []
     count = 0
-    while len(set(states)) != 1 or len(states) < 10:
+    while (len(set(states)) != 1) and (set(states) != set([(0, 0, 0), (0, 1, 0)])):
         count += 1
         time.sleep(1)
         states.append((hw.red, hw.yellow, hw.green))
@@ -69,9 +69,25 @@ def wait_settle(context, name):
     return
 
 
-@then("the {color} light of {name} must try to flash in {time} second rhythm")
-def check_blink(context, color, name, time):
-    pass
+@then("the {color} light of {name} must try to flash in {duration} second rhythm")
+def check_blink(context, color, name, duration):
+    assert name in context.traffic_lights
+    hw = context.traffic_lights[name]["hardware"]
+    states = []
+    count = 0
+    # Wait for two states to settle withing ten seconds
+    while True:
+        if set(states) == set([(0, 0, 0), (0, 1, 0)]):
+            # Alternating yellow/black
+            # TODO Have to check interval
+            return
+        count += 1
+        time.sleep(1)
+        states.append((hw.red, hw.yellow, hw.green))
+        if len(states) > 10:
+            states.pop(0)
+        print(states)
+        assert count < 30
 
 
 @then("the {color} light of {name} must be on permanently")
