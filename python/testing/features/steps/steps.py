@@ -13,10 +13,14 @@ def launch_trafficlight(name, with_comm=False, with_controller=False):
     if with_comm:
         pass
 
+    if with_comm:
+        comm = trafficlight.TrafficLightSerial.open(name, hw.pts)
+    else:
+        comm = None
     return {
         "controller": SimController() if with_controller else None,
         "hardware": hw,
-        "comm": None,
+        "comm": comm,
     }
 
 

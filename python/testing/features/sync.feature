@@ -23,7 +23,7 @@ Feature: Synchronization
                 | hangar         | garbenheim           | 60      |
                 | garbenheim     | hangar               | 60      |
 
-        
+
         Scenario Outline: If two traffic lights start up, no matter in which order with a broken bulb, they must synchronize
                 Given I have one traffic light called <a>
                 And I have one traffic light called <b>
@@ -43,4 +43,4 @@ Feature: Synchronization
                 | garbenheim     | hangar               | yellow  |
                 | hangar         | garbenheim           | green   |
                 | garbenheim     | hangar               | green   |
-    
+

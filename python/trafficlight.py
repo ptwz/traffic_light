@@ -616,11 +616,7 @@ class TrafficLightSerial(TrafficLight):
     def open(cls, name, port, reset_pin=None):
         local_light = cls()
         local_light.set_logger(logging.getLogger(name))
-        ser = serial.Serial(
-            port,
-            cls.baud,
-            protocol=local_light,
-        )
+        ser = serial.Serial(port, cls.baud)
         local_light.reader_thread = ReaderThread(ser, TrafficLightSerialReceiver)
         local_light.set_serial(ser)
         local_light.set_port(port)
