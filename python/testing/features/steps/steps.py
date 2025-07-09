@@ -1,7 +1,10 @@
 from behave import given, when, then
 import multiprocessing
 import trafficlight
+import subprocess
 import time
+import string
+import random
 from testing.simulate_hw import SimLight, SimController
 
 
@@ -11,7 +14,7 @@ def launch_trafficlight(name, with_comm=False, with_controller=False):
         pass
 
     return {
-        "controller": None if not with_controller else SimController(),
+        "controller": SimController() if with_controller else None,
         "hardware": hw,
         "comm": None,
     }
@@ -25,10 +28,47 @@ def single_traffic_light(context, name):
     context.traffic_lights[name] = launch_trafficlight(name, False, False)
 
 
+@given("I have one traffic light called {name} with a controller")
+def single_traffic_light(context, name):
+    assert name not in context.traffic_lights
+    context.traffic_lights[name] = launch_trafficlight(name, False, True)
+
+
 @given("I have one traffic light called {name}")
 def named_traffic_light(context, name):
     assert name not in context.traffic_lights
     context.traffic_lights[name] = launch_trafficlight(name, True, False)
+
+
+@given("I have an mqtt server")
+def have_mqtt_server(context):
+    context.mqtt = {
+        "server_task": None,
+        "port": 1883,
+        "username": "ampel",
+        "password": "".join(random.choice(string.ascii_lowercase) for i in range(16)),
+        "passwdfile": "/tmp/mosquitto.passwd",
+    }
+    with open("/tmp/mosquitto.conf", "w") as f:
+        f.write(f"password_file {context.mqtt['passwdfile']}\n")
+        f.write(f"listener {context.mqtt['port']}\n")
+
+    # Now (re)generate mosquitto.passwd
+    subprocess.run([
+        "mosquitto_passwd",
+        "-c",
+        "-b",
+        context.mqtt["passwdfile"],
+        context.mqtt["username"],
+        context.mqtt["password"],
+    ])
+
+    # Now start mosquitto process
+    context.mqtt["daemon"] = subprocess.Popen(
+        ["mosquitto", "-c", "/tmp/mosquitto.conf"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 @given("the {color} bulb of {name} is defective")
@@ -57,7 +97,8 @@ def turn_on_delayed(context, name, duration):
 def wait_settle(context, name):
     assert name in context.traffic_lights
     hw = context.traffic_lights[name]["hardware"]
-    states = []
+    # Force invalid states, in order to wait for proper settling
+    states = [1, 2, 3]
     count = 0
     while (len(set(states)) != 1) and (set(states) != set([(0, 0, 0), (0, 1, 0)])):
         count += 1
@@ -86,7 +127,6 @@ def check_blink(context, color, name, duration):
         states.append((hw.red, hw.yellow, hw.green))
         if len(states) > 10:
             states.pop(0)
-        print(states)
         assert count < 30
 
 

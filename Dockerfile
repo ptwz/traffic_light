@@ -6,7 +6,7 @@ RUN useradd -m ampel
 
 RUN apt-get update ; apt-get upgrade -y
 
-RUN apt-get install -y python3 python3-behave python3-serial python3-paho-mqtt
+RUN apt-get install -y python3 python3-behave python3-serial python3-paho-mqtt mosquitto
 
 ADD python /opt/ampel/
 

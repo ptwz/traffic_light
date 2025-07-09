@@ -1,9 +1,14 @@
+
 Feature: Synchronization
+        @wip
         Scenario Outline: If two traffic lights start up, no matter in which order, they must synchronize
-                Given I have one traffic light called <a>
+                Given I have an mqtt server
+                And I have one traffic light called <a>
                 And I have one traffic light called <b>
                 When I turn the traffic light <b> on
                 And I turn the traffic light <b> on <time> seconds later
+                And wait for <a> to settle
+                And wait for <b> to settle
                 Then the green light of hangar must be on permanently
                 And the green light of garbenheim must be on permanently
 
@@ -25,6 +30,8 @@ Feature: Synchronization
                 And the <color> bulb of <a> is defective
                 When I turn the traffic light <b> on
                 And I turn the traffic light <b> on 10 seconds later
+                And wait for <a> to settle
+                And wait for <b> to settle
                 Then the yellow light of <a> must try to flash in 2 second rhythm
                 And the yellow light of <b> must try to flash in 2 second rhythm
 

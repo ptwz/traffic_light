@@ -40,6 +40,12 @@ class SimBase:
         self.poll = pollobject
 
     def reader_task(self):
+        """
+        Hande reading from the newly generated pts.
+        NOTE: This a subtile bug, in that it will only start to work if one byte
+              has been received. So one needs to send at least one byte for this
+              emulator to start up.
+        """
         while True:
             tuples = self.poll.poll(None)
             for fd, events in tuples:
@@ -97,6 +103,9 @@ class SimLight(SimBase):
         self.analog_cycles = 0
         self.error_state = 0
         self.enable = False
+        self.red = 0
+        self.yellow = 0
+        self.green = 0
 
     def process(self, line):
         """Emulate the "serial_statemachine" for the JAL-Firmware"""
@@ -197,24 +206,25 @@ class SimLight(SimBase):
             if self.pulse > 1 * self.second:
                 self.pulse = 0
                 self.traffic_state = "TRAFFIC_TEMP_ERROR"
-        elif self.traffic_statemachine == "TRAFFIC_FAIL":
+        elif self.traffic_state == "TRAFFIC_FAIL":
             self.red = 0
             self.green = 0
             if self.pulse > 2 * self.second:
-                self.yellow = not self.yellow
+                self.yellow = self.yellow ^ 1
                 self.pulse = 0
 
         if oldstate != self.traffic_state:
             self.analog_cycles = 0
             self.pulse = 0
 
-        if self.analog_cycles > 10:
+        if self.analog_cycles > 1:
             self.analog_cycles = 0
             self.error_state = self.check_plausible()
             if self.error_state != 0:
                 self.traffic_state = "TRAFFIC_FAIL"
 
     def check_plausible(self):
+        self.emulate_hardware()
         if self.green and self.sense["green"] < 500:
             return 1
         if self.red and self.sense["red"] < 500:
@@ -224,6 +234,7 @@ class SimLight(SimBase):
         return 0
 
     def is_on(self, color):
+        self.emulate_hardware()
         return self.sense[color] > 500
 
     def fail_bulb(self, name):
@@ -260,7 +271,6 @@ class SimLight(SimBase):
             self.analog_cycles += 1
             self.pulse += 1
             self.traffic_statemachine()
-            self.emulate_hardware()
 
             if self.ready:
                 telegram = f"{self.traffic_state} {self.batt_voltage} {self.error_state} {self.sense['red']} {self.sense['yellow']} {self.sense['green']}\r\n"

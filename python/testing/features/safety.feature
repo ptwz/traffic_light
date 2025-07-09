@@ -1,4 +1,3 @@
-@wip
 Feature: Lamp check
         Scenario: If all bulbs work, the traffic light should boot into green
                 Given I have one traffic light called hangar which has no communication stack running
