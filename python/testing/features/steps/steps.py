@@ -8,13 +8,16 @@ import random
 from testing.simulate_hw import SimLight, SimController
 
 
-def launch_trafficlight(name, with_comm=False, with_controller=False):
+def launch_trafficlight(context, name, with_comm=False, with_controller=False):
     hw = SimLight()
     if with_comm:
-        pass
-
-    if with_comm:
-        comm = trafficlight.TrafficLightSerial(name, hw.pts)
+        mqtt_data = {
+            "host": "127.0.0.1",
+            "port": context.mqtt["port"],
+            "username": context.mqtt["username"],
+            "password": context.mqtt["password"],
+        }
+        comm = trafficlight.TrafficLightSerial(name, mqtt_data, hw.pts)
     else:
         comm = None
     return {
@@ -29,19 +32,19 @@ def launch_trafficlight(name, with_comm=False, with_controller=False):
 )
 def single_traffic_light(context, name):
     assert name not in context.traffic_lights
-    context.traffic_lights[name] = launch_trafficlight(name, False, False)
+    context.traffic_lights[name] = launch_trafficlight(context, name, False, False)
 
 
 @given("I have one traffic light called {name} with a controller")
 def single_traffic_light(context, name):
     assert name not in context.traffic_lights
-    context.traffic_lights[name] = launch_trafficlight(name, False, True)
+    context.traffic_lights[name] = launch_trafficlight(context, name, False, True)
 
 
 @given("I have one traffic light called {name}")
 def named_traffic_light(context, name):
     assert name not in context.traffic_lights
-    context.traffic_lights[name] = launch_trafficlight(name, True, False)
+    context.traffic_lights[name] = launch_trafficlight(context, name, True, False)
 
 
 @given("I have an mqtt server")
