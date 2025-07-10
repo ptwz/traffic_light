@@ -14,7 +14,7 @@ def launch_trafficlight(name, with_comm=False, with_controller=False):
         pass
 
     if with_comm:
-        comm = trafficlight.TrafficLightSerial.open(name, hw.pts)
+        comm = trafficlight.TrafficLightSerial(name, hw.pts)
     else:
         comm = None
     return {

@@ -4,9 +4,8 @@ import random
 import os
 from queue import Queue
 from time import time
-from serial.threaded import ReaderThread, LineReader
 import serial
-import serial.threaded
+import threading
 
 
 class TrafficLight:
@@ -138,28 +137,11 @@ class TrafficLight:
         pass
 
 
-class TrafficLightControllerReceiver(LineReader):
-    def __init__(self):
-        super(LineReader, self).__init__(self)
-        self.logger = logging.getLogger("SerialReceiver")
-        self.queue = Queue()
-
-    def connection_made(self, transport):
-        super(LineReader, self).connection_made(transport)
-
-    def handle_line(self, data):
-        data
-
-    def connection_lost(self, exc):
-        self.logger.write("port closed\n")
-
-
 class TrafficLightController:
     @classmethod
     def open(cls, port, group):
         controller = cls()
         ser = serial.serial_for_url(port, baudrate=19200, timeout=1)
-        ReaderThread(ser, TrafficLightControllerReceiver)
         controller.set_serial(ser)
         controller.setGroup(group)
         return controller
@@ -563,43 +545,6 @@ class TrafficLightRemote(TrafficLight):
             self.error_count += 1
 
 
-class TrafficLightSerialReceiver(LineReader):
-    def __init__(self):
-        super(LineReader, self).__init__(self)
-        self.logger = logging.getLogger("TrafficLightSerialReceiver")
-        self.parent = None
-
-    def connection_made(self, transport):
-        super(LineReader, self).connection_made(transport)
-
-    def set_parent(self, parent):
-        self.parent = parent
-
-    def handle_line(self, line):
-        # Ignore blank lines
-        if not line:
-            return
-        try:
-            parent = self.parent
-            if not self.parent:
-                return
-            line = line.decode("ascii").strip()
-            (
-                parent.state,
-                parent.batt_voltage,
-                parent.error_state,
-                parent.lamp_currents[0],
-                parent.lamp_currents[1],
-                parent.lamp_currents[2],
-            ) = line.split(" ")
-            parent.last_seen = time()
-        except (ValueError, UnicodeDecodeError):
-            self.logger.info("Received garbled line")
-
-    def connection_lost(self, exc):
-        self.logger.write("port closed\n")
-
-
 class TrafficLightSerial(TrafficLight):
     delimiter = b"\n"
 
@@ -612,24 +557,45 @@ class TrafficLightSerial(TrafficLight):
     def rx_thread(self):
         pass
 
-    @classmethod
-    def open(cls, name, port, reset_pin=None):
-        local_light = cls()
-        local_light.set_logger(logging.getLogger(name))
-        ser = serial.Serial(port, cls.baud)
-        local_light.reader_thread = ReaderThread(ser, TrafficLightSerialReceiver)
-        local_light.set_serial(ser)
-        local_light.set_port(port)
-        local_light.set_reset(reset_pin)
-        local_light.send_update()
-        return local_light
+    def __init__(self, name, port, reset_pin=None):
+        TrafficLight.__init__(self)
+        self.set_logger(logging.getLogger(name))
+        self.ser = serial.Serial(port, self.baud)
+        self.set_port(port)
+        self.set_reset(reset_pin)
+        self.send_update()
+        self.rx_thread = threading.Thread(target=self._rx_thread, daemon=True)
+        self.rx_thread.start()
+
+    def _rx_thread(self):
+        while True:
+            line = self.ser.read_until()
+            self.handle_line(line.decode("latin-1"))
+
+    def handle_line(self, line):
+        # Ignore blank lines
+        if not line:
+            return
+        try:
+            line = line.strip()
+            (
+                self.state,
+                self.batt_voltage,
+                self.error_state,
+                self.lamp_currents[0],
+                self.lamp_currents[1],
+                self.lamp_currents[2],
+            ) = line.split(" ")
+            self.last_seen = time()
+        except (ValueError, UnicodeDecodeError):
+            self.logger.info("Received garbled line")
 
     def reopen(self):
         """
         Establish a reader/writer thread
         """
         self.serial = serial.Serial(self.port, self.baud)
-        self.reader_thread = ReaderThread(self.serial, TrafficLightSerialReceiver)
+        self.send_update()
 
     def set_port(self, port):
         self.port = port
@@ -658,13 +624,13 @@ class TrafficLightSerial(TrafficLight):
 
     def send_update(self):
         if self.give_way:
-            self.reader_thread.write("G".encode("ascii"))
+            self.ser.write("G".encode("ascii"))
         else:
-            self.reader_thread.write("g".encode("ascii"))
+            self.ser.write("g".encode("ascii"))
         if self.temp_error:
-            self.reader_thread.write("E".encode("ascii"))
+            self.ser.write("E".encode("ascii"))
         else:
-            self.reader_thread.write("e".encode("ascii"))
+            self.ser.write("e".encode("ascii"))
 
     def service_watchdog(self):
         self.send_update()
