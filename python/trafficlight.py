@@ -6,6 +6,7 @@ from queue import Queue
 from time import time
 import serial
 import threading
+import paho.mqtt.client as mqtt
 
 
 class TrafficLight:
@@ -15,7 +16,8 @@ class TrafficLight:
     interfaces or virtual traffic lights.
     """
 
-    def __init__(self):
+    def __init__(self, name, mqtt_param):
+        self.mqtt_param = mqtt_param
         self.logger = logging.getLogger()
         self.state = 99
         self.batt_voltage = 0
@@ -26,6 +28,29 @@ class TrafficLight:
         self.temp_error = False
         self.read_only = False
         self.web_writeable = False
+
+    def _connect_mqtt(self):
+        mqtt_param = self.mqtt_param
+        if mqtt_param:
+            self.mqtt = mqtt.Client(client_id=self.name)
+            self.mqtt.username_pw_set(
+                username=mqtt_param["username"], password=mqtt_param["password"]
+            )
+            # Try to reconnect if connection fails
+            self.mqtt.on_disconnect(self._connect_mqtt)
+            self.mqtt.on_message(self._process_mqtt)
+            self.mqtt_connect(mqtt_param["host"], mqtt_param["port"])
+            # TODO Enable TLS if necessary!!!
+            self.mqtt_loop_start()
+
+        else:
+            self.mqtt = None
+
+    def _process_mqtt(self, client, user_data, message):
+        # TODO: Implement processing of messages
+        if message.topic == "info":
+            print(message.payload)
+            pass
 
     def is_writable(self, key):
         """
@@ -139,7 +164,7 @@ class TrafficLight:
 
 class TrafficLightController:
     @classmethod
-    def open(cls, port, group):
+    def open(cls, port, group, mqtt_param):
         controller = cls()
         ser = serial.serial_for_url(port, baudrate=19200, timeout=1)
         controller.set_serial(ser)
@@ -200,8 +225,8 @@ class TrafficLightGroup(TrafficLight):
         r.set_logger(logging.getLogger(name))
         return r
 
-    def __init__(self, i_am_master, local, remote, max_diverge=5):
-        TrafficLight.__init__(self)
+    def __init__(self, name, mqtt_param, i_am_master, local, remote, max_diverge=5):
+        TrafficLight.__init__(self, name, mqtt_param)
         self.i_am_master = i_am_master
         self.remote = remote
         self.local = local
@@ -343,111 +368,18 @@ class TrafficLightGroup(TrafficLight):
         return True
 
 
-class TrafficLightDummy(TrafficLight):
-    @classmethod
-    def open(cls, name, fail_probability):
-        r = cls(float(fail_probability))
-        r.set_logger(logging.getLogger(name))
-        return r
-
-    def __init__(self, fail_probability):
-        TrafficLight.__init__(self)
-        # self.fail_loop = task.LoopingCall(self.simulate_failures)
-        # self.run_loop = task.LoopingCall(self.run)
-        self.fail_probability = fail_probability
-        self.state = 0
-        self.fail_comm = False
-        self.fail_lamp = False
-
-        self.fail_loop.start(0.5).addErrback(self.error)
-        self.run_loop.start(1).addErrback(self.error)
-
-    def send_update(self):
-        if self.read_only:
-            self.logger.debug("Read-only: No update:")
-        else:
-            self.logger.debug("Would update: {}".format(self.state))
-
-    def error(self, err):
-        self.logger.debug(err)
-
-    def simulate_failures(self):
-        if random.random() > (1 - self.fail_probability):
-            self.fail_lamp = random.random() > 0.5
-            self.fail_comm = random.random() > 0.5
-            self.logger.warning(
-                "fail_lamp={} fail_comm={}".format(self.fail_lamp, self.fail_comm)
-            )
-
-    def reset(self):
-        self.state = 0
-        self.fail_comm = False
-        self.fail_lamp = False
-
-    def run(self):
-        self.logger.debug("RUN")
-        self.batt_voltage = 12 + random.random() * 1.5
-        if not self.fail_comm:
-            self.logger.debug("TICK")
-            self.last_seen = time()
-        if self.fail_lamp:
-            self.state = 9
-        self.logger.debug("state={} temp_error={}".format(self.state, self.temp_error))
-        if self.state < 3:
-            self.state += 1
-        elif self.state == 5:
-            if self.give_way:
-                self.state = 6
-        elif self.state == 6:
-            self.state = 3
-        elif self.state == 3:
-            if not self.give_way:
-                self.state = 4
-        elif self.state == 4:
-            self.state = 5
-        elif self.state == 8 and self.temp_error == False:
-            self.state = 3
-        if self.temp_error:
-            self.logger.warning("Got temporary error")
-            self.state = 8
-        self.lamp_currents = {
-            0: [60, 0, 0],
-            1: [60, 60, 0],
-            2: [60, 60, 60],
-            3: [0, 0, 60],
-            4: [0, 60, 0],
-            5: [60, 0, 0],
-            6: [60, 60, 0],
-            8: [0, 30, 0],
-            9: [0, 25, 0],
-        }[self.state]
-
-
 class TrafficLightRemote(TrafficLight):
     """
     Interface to a remote traffic light.
 
-    Uses the JSON GET/POST API and supports "signed"
-    messages using the auth.transportWrapper for a bit
-    better security.
-
-    Note that only groups can be written remotely!!
+    Gets remote's traffic light status via MQTT
     """
 
-    @classmethod
-    def open(cls, name, url, interval):
-        r = cls(url, float(interval))
-        r.set_logger(logging.getLogger(name))
-        return r
-
-    def __init__(self, url, interval):
-        TrafficLight.__init__(self)
-        self.poll_loop = task.LoopingCall(self.poll_remote)
-        self.remote_url = url
+    def __init__(self, name, mqtt_param, interval=10):
+        TrafficLight.__init__(self, name, mqtt_param)
         self.running_requests = {}
         self.error_count = 0
         self.request_count = 0
-        self.poll_loop.start(interval).addErrback(log.err)
 
     def update_answer_handler(self, response):
         d = readBody(response)
@@ -557,8 +489,8 @@ class TrafficLightSerial(TrafficLight):
     def rx_thread(self):
         pass
 
-    def __init__(self, name, port, reset_pin=None):
-        TrafficLight.__init__(self)
+    def __init__(self, name, mqtt_param, port, reset_pin=None):
+        TrafficLight.__init__(self, name, mqtt_param)
         self.set_logger(logging.getLogger(name))
         self.ser = serial.Serial(port, self.baud)
         self.set_port(port)
