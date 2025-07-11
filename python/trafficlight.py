@@ -52,6 +52,9 @@ class TrafficLight:
             print(message.payload)
             pass
 
+    def publish(self):
+        self.mqtt.publish("ampel/" + self.name + "/state", self.to_json())
+
     def is_writable(self, key):
         """
         Test if this traffic light is writable from web interface.
@@ -519,6 +522,7 @@ class TrafficLightSerial(TrafficLight):
                 self.lamp_currents[2],
             ) = line.split(" ")
             self.last_seen = time()
+            self.publish()
         except (ValueError, UnicodeDecodeError):
             self.logger.info("Received garbled line")
 
@@ -571,6 +575,5 @@ class TrafficLightSerial(TrafficLight):
 lightTypes = {
     "serial": TrafficLightSerial,
     "group": TrafficLightGroup,
-    "dummy": TrafficLightDummy,
     "remote": TrafficLightRemote,
 }
