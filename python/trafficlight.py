@@ -28,6 +28,8 @@ class TrafficLight:
         self.temp_error = False
         self.read_only = False
         self.web_writeable = False
+        self.name = name
+        self._connect_mqtt()
 
     def _connect_mqtt(self):
         mqtt_param = self.mqtt_param
@@ -37,11 +39,10 @@ class TrafficLight:
                 username=mqtt_param["username"], password=mqtt_param["password"]
             )
             # Try to reconnect if connection fails
-            self.mqtt.on_disconnect(self._connect_mqtt)
-            self.mqtt.on_message(self._process_mqtt)
-            self.mqtt_connect(mqtt_param["host"], mqtt_param["port"])
+            self.mqtt.on_message = self._process_mqtt
+            self.mqtt.connect(mqtt_param["host"], mqtt_param["port"])
             # TODO Enable TLS if necessary!!!
-            self.mqtt_loop_start()
+            self.mqtt.loop_start()
 
         else:
             self.mqtt = None
@@ -53,7 +54,12 @@ class TrafficLight:
             pass
 
     def publish(self):
-        self.mqtt.publish("ampel/" + self.name + "/state", self.to_json())
+        try:
+            self.mqtt.publish("ampel/" + self.name + "/state", self.to_json())
+        except AttributeError as e:
+            print(e)
+            """ If there is no MQTT connection, disregard """
+            pass
 
     def is_writable(self, key):
         """

@@ -76,6 +76,8 @@ def have_mqtt_server(context):
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+    # Give server some time to start up
+    time.sleep(1)
 
 
 @given("the {color} bulb of {name} is defective")
