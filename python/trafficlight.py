@@ -42,6 +42,7 @@ class TrafficLight:
             self.mqtt.on_message = self._process_mqtt
             self.mqtt.connect(mqtt_param["host"], mqtt_param["port"])
             # TODO Enable TLS if necessary!!!
+            self.state_topic = f"ampel/{self.name}/state"
             self.mqtt.loop_start()
 
         else:
@@ -55,7 +56,7 @@ class TrafficLight:
 
     def publish(self):
         try:
-            self.mqtt.publish("ampel/" + self.name + "/state", self.to_json())
+            self.mqtt.publish(self.state_topic, self.to_json())
         except AttributeError as e:
             print(e)
             """ If there is no MQTT connection, disregard """
@@ -386,104 +387,11 @@ class TrafficLightRemote(TrafficLight):
 
     def __init__(self, name, mqtt_param, interval=10):
         TrafficLight.__init__(self, name, mqtt_param)
-        self.running_requests = {}
-        self.error_count = 0
-        self.request_count = 0
+        self.mqtt.subscribe(self.state_topic)
 
-    def update_answer_handler(self, response):
-        d = readBody(response)
-        # TODO maybe move it until validation?
-        self.error_count = 0
-        d.addCallback(self.on_update_answer_received)
-        d.addErrback(log.err)
-        return d
-
-    def on_update_answer_received(self, data):
-        if not data.strip() == "ok":
-            logging.error(
-                "Something went wrong trying to update remote.. Answer was:{}".format(
-                    data.strip()
-                )
-            )
-
-    def poll_error(self, failure, starttime):
-        """
-        When a request fails, clean up the waiting list
-        """
-        self.logger.error("Request {} failed: {}".format(starttime, failure))
-        self.error_count += 1
-        del self.running_requests[starttime]
-
-    def error_rate(self):
-        if self.request_count > 0:
-            return 100.0 * self.error_count / self.request_count
-        else:
-            return None
-
-    def poll_remote(self):
-        """
-        Polls remote host to get its state
-        """
-        try:
-            # FIXME: might fail on first iteration as transportWrapper is not
-            #        yet initialized..
-            self.request_count += 1
-            challenge = self.transportWrapper.makeChallenge()
-            url = (
-                self.remote_url + "?" + urllib.parse.urlencode({"challenge": challenge})
-            )
-            url = bytes(url.encode("ascii"))
-            starttime = time()
-            req = self.agent.request(b"GET", url)
-            req.addCallback(self.request_handler, challenge, starttime)
-            req.addErrback(self.poll_error, starttime)
-            self.running_requests[starttime] = req
-            self.logger.debug(
-                "len(running_requests)={}, age={:0.1f}s, error_rate={:0.2f}%".format(
-                    len(self.running_requests),
-                    time() - self.last_seen,
-                    self.error_rate(),
-                )
-            )
-        except Exception as e:
-            self.logger.debug(">>>>{}".format(e))
-
-    def force_set(self, giveway=None, temp_error=None):
-        """
-        Can be used to force remote's state to a certain value.
-        Note this may fail if remote is not writable!
-        """
-        body = {}
-        body["giveway"] = give_way
-
-    def request_handler(self, response, challenge, starttime):
-        d = readBody(response)
-        # TODO maybe move it until validation?
-        self.error_count = 0
-        d.addCallback(self.on_data_received, challenge, starttime)
-        d.addErrback(log.err)
-        return d
-
-    def on_data_received(self, body, challenge, starttime):
-        if starttime not in self.running_requests:
-            # This can only be triggered by a race condition between this
-            # function cancelling a request and getting data. Not sure how
-            # twisted handled this in the background, just catch it before
-            # bad things happen
-            self.logger.warning("State data arrived too late, discarding")
-            return
-        self.logger.debug("body={}".format(body))
-        self.from_json(body, challenge)
-        self.last_seen = starttime
-        # Now purge old requests
-        stale_requests = [
-            started for started in self.running_requests if started < self.last_seen
-        ]
-        for started in stale_requests:
-            self.running_requests[started].cancel()
-            if started in self.running_requests:
-                del self.running_requests[started]
-            self.error_count += 1
+    def _process_mqtt(self, client, user_data, message):
+        if message.topic == self.state_topic:
+            self.from_json(message.body)
 
 
 class TrafficLightSerial(TrafficLight):
