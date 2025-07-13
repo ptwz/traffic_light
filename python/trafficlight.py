@@ -1,8 +1,6 @@
 import json
 import logging
-import random
 import os
-from queue import Queue
 from time import time
 import serial
 import threading
@@ -69,13 +67,6 @@ class TrafficLight:
         if self.web_writeable:
             return True
         return False
-
-    def dereference(self, names):
-        """
-        Dereferece symbolic names (if needed) after reading
-        of config has been finished.
-        """
-        pass
 
     def set_logger(self, logger):
         self.logger = logger
@@ -242,7 +233,6 @@ class TrafficLightGroup(TrafficLight):
         self.local = local
         self.max_diverge = max_diverge
         self.start_diverge = None
-        self.dereferenced = False
         self.controller = None
 
     def controllerLost(self):
@@ -251,23 +241,6 @@ class TrafficLightGroup(TrafficLight):
         invalid.
         """
         self.controller = None
-
-    def dereference(self, names):
-        """
-        Dereferece symbolic names (if needed)
-        """
-        if self.local in names:
-            self.local = names[self.local]
-        else:
-            raise ValueError("Cannot find name {} for local.".format(self.local))
-
-        if self.remote in names:
-            self.remote = names[self.remote]
-        else:
-            raise ValueError("Cannot find name {} for remote.".format(self.remote))
-        self.remote.setReadOnly(not self.i_am_master)
-        self.web_writeable = self.i_am_master
-        self.dereferenced = True
 
     def seen(self):
         return self.local.seen() and self.remote.seen()
@@ -297,10 +270,6 @@ class TrafficLightGroup(TrafficLight):
         if the remote state is known. Otherwise use local
         state
         """
-        if not self.dereferenced:
-            logging.debug("Cannot check yet, not dereferenced yet")
-            return None
-
         if self.i_am_master and self.controller is None:
             # Probe for external controller if none is attached (yet)
             self.probe_controller()
