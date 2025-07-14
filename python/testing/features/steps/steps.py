@@ -11,13 +11,7 @@ from testing.simulate_hw import SimLight, SimController
 def launch_trafficlight(context, name, with_comm=False, with_controller=False):
     hw = SimLight()
     if with_comm:
-        mqtt_data = {
-            "host": "127.0.0.1",
-            "port": context.mqtt["port"],
-            "username": context.mqtt["username"],
-            "password": context.mqtt["password"],
-        }
-        comm = trafficlight.TrafficLightSerial(name, mqtt_data, hw.pts)
+        comm = True
     else:
         comm = None
     return {
@@ -38,7 +32,7 @@ def single_traffic_light(context, name):
 @given("I have one traffic light called {name} with a controller")
 def single_traffic_light(context, name):
     assert name not in context.traffic_lights
-    context.traffic_lights[name] = launch_trafficlight(context, name, False, True)
+    context.traffic_lights[name] = launch_trafficlight(context, name, True, True)
 
 
 @given("I have one traffic light called {name}")
@@ -71,10 +65,13 @@ def have_mqtt_server(context):
     ])
 
     # Now start mosquitto process
+    import sys
+
     context.mqtt["daemon"] = subprocess.Popen(
         ["mosquitto", "-c", "/tmp/mosquitto.conf"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        # stderr=sys.stdout,
     )
     # Give server some time to start up
     time.sleep(1)
@@ -91,7 +88,21 @@ def bulb_defective(context, color, name):
 @when("I turn the traffic light {name} on")
 def turn_light_on(context, name):
     assert name in context.traffic_lights
-    context.traffic_lights[name]["hardware"].switch_on()
+    light = context.traffic_lights[name]
+    if light["comm"] == True:
+        mqtt_data = {
+            "host": "127.0.0.1",
+            "port": context.mqtt["port"],
+            "username": context.mqtt["username"],
+            "password": context.mqtt["password"],
+        }
+        # Get name of the other light, too
+        other_name = list(set(context.traffic_lights.keys()) - set(name)).pop()
+
+        light["comm"] = trafficlight.TrafficLightGroup(
+            name, light["hardware"].pts, other_name, mqtt_data
+        )
+    light["hardware"].switch_on()
     # Start up hardware first, then br`ing up "pi" if any
 
 
@@ -99,7 +110,7 @@ def turn_light_on(context, name):
 def turn_on_delayed(context, name, duration):
     assert name in context.traffic_lights
     time.sleep(int(duration))
-    context.traffic_lights[name]["hardware"].switch_on()
+    turn_light_on(context, name)
 
 
 @when("wait for {name} to settle")

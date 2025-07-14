@@ -1,70 +1,34 @@
-import sys
+import argparse
+import os
+import time
 import logging
-from configparser import SafeConfigParser
-from twisted.web.resource import Resource
-from twisted.web.server import Site
-from twisted.internet import reactor, endpoints
-from twisted.web.static import File
-from trafficlight import lightTypes
-from webserver import TrafficLightWeb, JSONAnswer
+from trafficlight import TrafficLightGroup
 
-if len(sys.argv) < 2:
-    print("Please start with a config file name")
-    sys.exit(0)
+parser = argparse.ArgumentParser(description="Trafflic light controller")
+
+parser.add_argument("name")
+parser.add_argument("remotename")
+parser.add_argument("tty")
+parser.add_argument("-s", "--server")
+parser.add_argument("-p", "--port")
+parser.add_argument("-u", "--username")
+parser.add_argument("-l", "--log-level")
+
+args = parser.parse_args()
 
 logging.basicConfig(level=logging.DEBUG)
 
+if "MQTT_PASS" not in os.environ:
+    print("Please set MQTT_PASS environment variable")
 
-lights = {}
-conf = SafeConfigParser()
-conf.read(sys.argv[1])
+mqtt_param = {
+    "username": args.username,
+    "password": os.environ["MQTT_PASS"],
+    "host": args.server,
+    "port": args.port,
+}
 
-sections = conf.sections()
+group = TrafficLightGroup(args.name, args.tty, args.remotename, mqtt_param)
 
-if 'web' not in sections:
-    port = 8880
-else:
-    port = conf.getint('web', 'http_port')
-
-light_sections = sections[:]
-light_sections.remove('web')
-
-fail = False
-for s in light_sections:
-    o = conf.options(s)
-    if 'type' not in o:
-        logging.error("{}: No type given, cannot process".format(s))
-        continue
-    lighttype = conf.get(s, 'type').strip()
-    if lighttype not in lightTypes:
-        logging.error("{}: Type '{}' is unknown, valid would be {}".format(s,
-                      lighttype, list(lightTypes.keys())))
-        continue
-    options = {k: conf.get(s, k) for k in conf.options(s)}
-    del options['type']
-
-    try:
-        logging.info("Start {}".format(s))
-        l = lightTypes[lighttype].open(name=s, **options)
-    except TypeError as e:  # When option name is not known
-        logging.error("{}: {}".format(s, e))
-        continue
-    lights[s] = l
-
-
-root = File("../website/")
-interface = JSONAnswer(list(lights.keys()))
-interface.putChild(b"status", TrafficLightWeb(lights['local_light']))
-root.putChild(b"interface", interface)
-
-for s in lights:
-    # After init, dereference symbolic names
-    lights[s].dereference(lights)
-    # Finally add them to the web tree
-    interface.putChild(bytes(s.encode('ascii')), TrafficLightWeb(lights[s]))
-# root.putChild("auth", Authenticator())
-
-factory = Site(root)
-endpoint = endpoints.TCP4ServerEndpoint(reactor, port)
-endpoint.listen(factory)
-reactor.run()
+while True:
+    time.sleep(0.1)

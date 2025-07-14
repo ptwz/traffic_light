@@ -5,7 +5,7 @@ Feature: Synchronization
                 Given I have an mqtt server
                 And I have one traffic light called <a>
                 And I have one traffic light called <b>
-                When I turn the traffic light <b> on
+                When I turn the traffic light <a> on
                 And I turn the traffic light <b> on <time> seconds later
                 And wait for <a> to settle
                 And wait for <b> to settle
