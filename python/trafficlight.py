@@ -21,9 +21,9 @@ class MQTTItem:
             self.mqtt.username_pw_set(
                 username=mqtt_param["username"], password=mqtt_param["password"]
             )
-            # Try to reconnect if connection fails
             self.mqtt.on_message = self._process_mqtt
             self.mqtt.connect(mqtt_param["host"], mqtt_param["port"])
+            self.mqtt.on_connect_fail = self._mqtt_fail
             # TODO Enable TLS if necessary!!!
             self.state_topic = f"ampel/{self.name}/state"
             self.command_topic = "ampel/command"
@@ -38,6 +38,18 @@ class MQTTItem:
 
         else:
             self.mqtt = None
+
+    def _mqtt_fail(self, client, userdata):
+        print("mqtt_fail: ", client, userdata)
+
+    def mqtt_disconnect(self):
+        try:
+            self.mqtt.disconnect()
+            self.mqtt.loop_stop()
+            del self.mqtt
+        except AttributeError:
+            # Disregard if there is no mqtt in the first place
+            pass
 
 
 class TrafficLight(MQTTItem):
@@ -59,6 +71,9 @@ class TrafficLight(MQTTItem):
         self.read_only = False
         self.web_writeable = False
         self.logger = logging.getLogger(name)
+
+    def __set__(self):
+        return f"TrafficLight(name={self.name}, self.lamp_currents)"
 
     def _process_mqtt(self, client, user_data, message):
         # TODO: Implement processing of messages
@@ -267,10 +282,17 @@ class TrafficLightController(MQTTItem):
 class TrafficLightGroup:
     def __init__(self, local_name, port, remote_name, mqtt_param):
         self.local = TrafficLightSerial(local_name, mqtt_param, port)
-        self.remote = TrafficLightRemote(remote_name, mqtt_param)
+        self.remote = TrafficLightRemote(remote_name + "aaa", mqtt_param)
         self._check = threading.Thread(target=self._check_thread, daemon=True)
         self._check.start()
         self.logger = logging.getLogger("TrafficLightGroup")
+
+    def __str__(self):
+        return f"TrafficLightGroup(local={str(self.local)}, remote={str(self.remote)})"
+
+    def mqtt_disconnect(self):
+        self.remote.mqtt_disconnect()
+        self.local.mqtt_disconnect()
 
     def seen(self):
         return self.local.seen() and self.remote.seen()

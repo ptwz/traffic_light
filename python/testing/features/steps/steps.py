@@ -153,4 +153,7 @@ def check_blink(context, color, name, duration):
 @then("the {color} light of {name} must be on permanently")
 def check_on(context, color, name):
     # TODO: Check if permanent!!
-    assert context.traffic_lights[name]["hardware"].is_on(color)
+    light = context.traffic_lights[name]
+    assert light["hardware"].is_on(color), (
+        str(light["comm"]) + " Should be permanently green"
+    )
