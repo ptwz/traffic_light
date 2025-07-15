@@ -18,6 +18,7 @@ def launch_trafficlight(context, name, with_comm=False, with_controller=False):
         "controller": SimController() if with_controller else None,
         "hardware": hw,
         "comm": comm,
+        "controller_comm": None,
     }
 
 
@@ -102,8 +103,27 @@ def turn_light_on(context, name):
         light["comm"] = trafficlight.TrafficLightGroup(
             name, light["hardware"].pts, other_name, mqtt_data
         )
+        if light["controller"]:
+            light["controller_comm"] = trafficlight.TrafficLightController(
+                name + "-controller", mqtt_data, port=light["controller"].pts
+            )
+            light["controller_comm"].connect()
+
     light["hardware"].switch_on()
     # Start up hardware first, then br`ing up "pi" if any
+
+
+@when("I press the {color} button on the controller of {name}")
+def controller_press(context, color, name):
+    assert color in ("red", "green")
+    assert name in context.traffic_lights
+    light = context.traffic_lights[name]
+    assert light["controller"]
+    controller = light["controller"]
+    if color == "green":
+        controller.press_green()
+    elif color == "red":
+        controller.press_red()
 
 
 @when("I turn the traffic light {name} on {duration} seconds later")
@@ -113,6 +133,7 @@ def turn_on_delayed(context, name, duration):
     turn_light_on(context, name)
 
 
+@when("I wait for {name} to settle")
 @when("wait for {name} to settle")
 def wait_settle(context, name):
     assert name in context.traffic_lights

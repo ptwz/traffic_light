@@ -3,6 +3,7 @@ import threading
 import time
 import pty
 import select
+import logging
 
 
 class SimBase:
@@ -80,10 +81,11 @@ class SimController(SimBase):
         print(char)
 
     def press_green(self):
-        os.write(self.pipe, b"G")
+        os.write(self.pipe, b"G\n")
 
     def press_red(self):
-        os.write(self.pipe, b"g")
+        logging.info("Press red")
+        os.write(self.pipe, b"g\n")
 
 
 class SimLight(SimBase):
@@ -117,9 +119,9 @@ class SimLight(SimBase):
                     self.request_green = True
                 if tmp == "g":
                     self.request_green = False
-                if tmp == "e":
-                    self.request_temp_error = True
                 if tmp == "E":
+                    self.request_temp_error = True
+                if tmp == "e":
                     self.request_temp_error = False
                 if ((tmp == "\r") | (tmp == "\n")) & (
                     self.serial_state == "SERIAL_READ_DATA"

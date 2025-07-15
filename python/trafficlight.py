@@ -13,6 +13,7 @@ class MQTTItem:
     def __init__(self, name, mqtt_param):
         self.mqtt_param = mqtt_param
         self.name = name
+        self._shutdown = False
         self._connect_mqtt()
 
     def _connect_mqtt(self):
@@ -49,14 +50,14 @@ class MQTTItem:
     def _mqtt_connected(
         self, client, userdata, connect_flags, reason_code, properties=None
     ):
-        self.logger.info(self.name + " MQTT Connected")
+        self.logger.debug(self.name + " MQTT Connected")
         self._do_subscriptions()
 
     def _do_subscriptions(self):
         self.mqtt.subscribe(self.command_topic)
 
     def _mqtt_disconnected(self, client, userdata, rc, x=None, y=None, z=None):
-        self.logger.info(" MQTT disconnect: %s", rc)
+        self.logger.debug(" MQTT disconnect: %s", rc)
 
     def _mqtt_fail(self, client, userdata):
         self.logger.warning("mqtt_fail: %s %s", client, userdata)
@@ -70,6 +71,10 @@ class MQTTItem:
             # Disregard if there is no mqtt in the first place
             pass
 
+    def shutdown(self):
+        self._shutdown = True
+        self.mqtt_disconnect()
+
 
 class TrafficLight(MQTTItem):
     """
@@ -78,8 +83,12 @@ class TrafficLight(MQTTItem):
     interfaces or virtual traffic lights.
     """
 
-    def __init__(self, name, mqtt_param):
-        self.logger = logging.getLogger(name)
+    def __init__(self, name, mqtt_param, local=True):
+        logname = name
+        if not local:
+            logname = "remote-" + logname
+
+        self.logger = logging.getLogger(logname)
         MQTTItem.__init__(self, name, mqtt_param)
         self.state = 99
         self.batt_voltage = 0
@@ -96,14 +105,14 @@ class TrafficLight(MQTTItem):
     def _process_mqtt_command(self, client, user_data, message):
         self.logger.debug("TrafficLight got ", message)
         try:
-            cmd = json.loads(message.topic)
+            cmd = json.loads(message.payload)
         except json.JSONDecodeError:
-            self.logger.warning("Could not parse command JSON: %s", message.topic)
+            self.logger.warning("Could not parse command JSON: %s", message.payload)
             return
         self.set_green(cmd["give_Way"])
 
     def publish(self):
-        self.logger.info(self.state)
+        self.logger.debug(self.state)
         try:
             self.mqtt.publish(self.state_topic, self.to_json())
         except AttributeError as e:
@@ -119,6 +128,7 @@ class TrafficLight(MQTTItem):
         Test if the backend device has reported back
         in the last time within the self.maxage time frame
         """
+        self.logger.debug("Last seen since: %d", time.time() - self.last_seen)
         return (time.time() - self.last_seen) < self.maxage
 
     def send_update():
@@ -138,6 +148,7 @@ class TrafficLight(MQTTItem):
             "good": self.is_good(),
             "give_way": self.give_way,
             "temp_error": self.temp_error,
+            "last_seen": self.last_seen,
             "alive": True,
         }
         return bytes(json.dumps(data).encode("utf8"))
@@ -161,7 +172,11 @@ class TrafficLight(MQTTItem):
                 data["batt_voltage"],
                 data["lamp_currents"],
             )
-            (self.give_way, self.temp_error) = (data["give_way"], data["temp_error"])
+            (self.give_way, self.temp_error, self.last_seen) = (
+                data["give_way"],
+                data["temp_error"],
+                data["last_seen"],
+            )
         except KeyError as e:
             if not data["alive"]:
                 self.logger.warning("Remote light has lost MQTT connection")
@@ -192,9 +207,9 @@ class TrafficLight(MQTTItem):
         error_state = bool(error_state)
         if self.temp_error != error_state:
             if error_state:
-                self.logger.debug("Received temp error")
+                self.logger.info("Received temp error")
             else:
-                self.logger.debug("No temp error")
+                self.logger.info("No temp error")
             self.temp_error = error_state
             self.send_update()
 
@@ -219,16 +234,21 @@ class TrafficLightController(MQTTItem):
         "/dev/ttyACM1",
         "/dev/ttyACM2",
     ]
+    baud = 19200
 
     def __init__(self, name, mqtt_param, port=None):
+        self.logger = logging.getLogger(name)
         MQTTItem.__init__(self, name, mqtt_param)
         self.port = port
         self.serial = None
-        self.mqtt.subscribe("ampel/+/state")
         self.light_status = {}
 
-    def _process_mqtt(self, client, user_data, message):
-        print("TrafficLightController got ", str(message))
+    def _do_subscriptions(self):
+        self.mqtt.subscribe("ampel/+/state")
+        self.mqtt.message_callback_add(self.state_topic, self.handle_state)
+
+    def handle_state(self, client, user_data, message):
+        logging.debug("TrafficLightController got ", str(message))
         m = re.search(r"ampel/(.[a-zA-Z0-9/]+)/state", message.topic)
         if m:
             name = m.group(0)
@@ -241,9 +261,11 @@ class TrafficLightController(MQTTItem):
 
         for name in ports:
             try:
-                self.serial = serial.Serial(name, self.baud)
+                self.serial = serial.Serial(name, self.baud, timeout=0.5)
                 self.rx_thread = threading.Thread(target=self._rx_thread, daemon=True)
                 self.rx_thread.start()
+                self.tx_thread = threading.Thread(target=self._tx_thread, daemon=True)
+                self.tx_thread.start()
                 return True
             except serial.SerialException:
                 continue
@@ -254,25 +276,29 @@ class TrafficLightController(MQTTItem):
             time.sleep(0.5)
 
     def _rx_thread(self):
-        while True:
+        while not self._shutdown:
             char = self.serial.read(1)
-            self.char_received(char)
+            if char:
+                self.char_received(char)
 
     def _tx_thread(self):
-        while True:
+        while not self._shutdown:
             time.sleep(0.1)
             self.send_update()
 
+    def publish(self, give_way):
+        payload = json.dumps({"give_way": bool(give_way)})
+        print(payload)
+        self.mqtt.publish(self.command_topic, payload, retain=True)
+
     def char_received(self, char):
         char = char.decode("latin-1")
-        logging.debug("TrafficLightController: received: {}".format(char))
+        self.logger.debug("TrafficLightController: received: {}".format(char))
         if char == "g":
-            self.group.give_way = False
-            self.group.temp_error = False
+            self.publish(False)
             self.group.send_update()
         elif char == "G":
-            self.group.give_way = True
-            self.group.temp_error = False
+            self.publish(True)
             self.group.send_update()
 
     def send_update(self):
@@ -280,33 +306,39 @@ class TrafficLightController(MQTTItem):
         Wakeup callback from group instance,
         send information to handheld
         """
-        packet = ["1" if int(x) > 10 else "0" for x in self.group.lamp_currents]
+        # FIXME: Get actual currents
+        currents = 6 * [0]
+        packet = ["1" if int(x) > 10 else "0" for x in currents]
         # FIXME: Classify Battery local/remote in good/bad
-        packet += [str(self.group.state), str(self.group.batt_voltage)]
+        # packet += [str(self.group.state), str(self.group.batt_voltage)]
         cmd = " ".join(packet)
         self.sendLine(bytes(cmd.encode("ascii")))
 
 
 class TrafficLightGroup:
     def __init__(self, local_name, port, remote_name, mqtt_param):
+        self._shutdown = False
         self.local = TrafficLightSerial(local_name, mqtt_param, port)
         self.remote = TrafficLightRemote(remote_name, mqtt_param)
         self._check = threading.Thread(target=self._check_thread, daemon=True)
         self._check.start()
-        self.logger = logging.getLogger("TrafficLightGroup")
+        self.logger = logging.getLogger("TrafficLightGroup " + local_name)
 
     def __str__(self):
         return f"TrafficLightGroup(local={str(self.local)}, remote={str(self.remote)})"
 
-    def mqtt_disconnect(self):
-        self.remote.mqtt_disconnect()
-        self.local.mqtt_disconnect()
+    def shutdown(self):
+        self._shutdown = True
+        self.remote.shutdown()
+        self.logger.debug("Shutting down local")
+        self.local.shutdown()
+        self.logger.debug("Stopping check")
 
     def seen(self):
         return self.local.seen() and self.remote.seen()
 
     def _check_thread(self):
-        while True:
+        while not self._shutdown:
             time.sleep(1)
             self.check()
 
@@ -318,7 +350,8 @@ class TrafficLightGroup:
         state
         """
         good = self.is_good()
-
+        if not good:
+            self.logger.info("Not good!")
         self.local.set_temp_error(not good)
 
         self.lamp_currents = self.local.lamp_currents + self.remote.lamp_currents
@@ -326,9 +359,9 @@ class TrafficLightGroup:
     def is_good(self):
         if not all([self.remote.seen(), self.local.seen()]):
             if not self.remote.seen():
-                self.logger.debug("Remote not seen!")
+                self.logger.info("Remote not seen!")
             if not self.local.seen():
-                self.logger.debug("Local not seen!")
+                self.logger.info("Local not seen!")
             return False
         if 9 in [self.local.state, self.remote.state]:
             # If an error was detected on either side, fail here, too
@@ -345,7 +378,7 @@ class TrafficLightRemote(TrafficLight):
 
     def __init__(self, name, mqtt_param, interval=10):
         mqtt_param["name"] = "".join(random.choices("abcdefghijklmnopqrstuvwxyz", k=10))
-        TrafficLight.__init__(self, name, mqtt_param)
+        TrafficLight.__init__(self, name, mqtt_param, local=False)
 
     def _do_subscriptions(self):
         self.logger.debug("subscribe to: %s", self.state_topic)
@@ -355,6 +388,10 @@ class TrafficLightRemote(TrafficLight):
     def _process_mqtt_state(self, client, user_data, message):
         self.logger.debug("TrafficLightRemote: got %s", message)
         self.from_json(message.payload)
+        # self.last_seen = time.time()
+
+    def publish(self):
+        assert False, "Should never be called"
 
 
 class TrafficLightSerial(TrafficLight):
@@ -378,11 +415,18 @@ class TrafficLightSerial(TrafficLight):
         self.send_update()
         self.rx_thread = threading.Thread(target=self._rx_thread, daemon=True)
         self.rx_thread.start()
+        self.tx_thread = threading.Thread(target=self._tx_thread, daemon=True)
+        self.tx_thread.start()
 
     def _rx_thread(self):
-        while True:
+        while not self._shutdown:
             line = self.ser.read_until()
             self.handle_line(line.decode("latin-1"))
+
+    def _tx_thread(self):
+        while not self._shutdown:
+            time.sleep(0.1)
+            self.send_update()
 
     def handle_line(self, line):
         # Ignore blank lines
@@ -426,7 +470,7 @@ class TrafficLightSerial(TrafficLight):
             with open("/sys/class/gpio/export", "w") as f:
                 f.write("{}\n".format(pin))
         except Exception as e:
-            logging.error("Could not open/write exports in gpiofs: {}".format(e))
+            self.logger.error("Could not open/write exports in gpiofs: {}".format(e))
 
     def set_config(self, param, value):
         if param in self.config_map:
@@ -445,8 +489,14 @@ class TrafficLightSerial(TrafficLight):
         else:
             self.ser.write("e".encode("ascii"))
 
-    def service_watchdog(self):
-        self.send_update()
+    def shutdown(self):
+        TrafficLight.shutdown(self)
+        self.logger.debug("Stopping tx thread")
+        self.rx_thread.stop()
+        self.logger.debug("Stopping rx thread")
+        self.tx_thread.stop()
+        self.logger.debug("Closing serial")
+        self.ser.close()
 
 
 lightTypes = {

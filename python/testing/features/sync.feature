@@ -1,6 +1,5 @@
 
 Feature: Synchronization
-        @wip
         Scenario Outline: If two traffic lights start up, no matter in which order, they must synchronize
                 Given I have an mqtt server
                 And I have one traffic light called <a>
