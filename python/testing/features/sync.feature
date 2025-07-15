@@ -28,7 +28,7 @@ Feature: Synchronization
                 And I have one traffic light called <a>
                 And I have one traffic light called <b>
                 And the <color> bulb of <a> is defective
-                When I turn the traffic light <b> on
+                When I turn the traffic light <a> on
                 And I turn the traffic light <b> on 10 seconds later
                 And wait for <a> to settle
                 And wait for <b> to settle
