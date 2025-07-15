@@ -24,7 +24,8 @@ Feature: Synchronization
 
 
         Scenario Outline: If two traffic lights start up, no matter in which order with a broken bulb, they must synchronize
-                Given I have one traffic light called <a>
+                Given I have an mqtt server
+                And I have one traffic light called <a>
                 And I have one traffic light called <b>
                 And the <color> bulb of <a> is defective
                 When I turn the traffic light <b> on

@@ -18,6 +18,7 @@ class SimBase:
         # self.pts, self.pipe, self.poll =
         self._get_pts()
         self.ready = False
+        self.shutdown = False
         self._reader_task = threading.Thread(target=self.reader_task, daemon=True)
         self._reader_task.start()
         self._main_task = threading.Thread(target=self.main, daemon=True)
@@ -64,8 +65,8 @@ class SimBase:
         pass
 
     def main(self):
-        while True:
-            time.sleep(10)
+        while not self.shutdown:
+            time.sleep(1)
 
 
 class SimController(SimBase):
@@ -73,7 +74,7 @@ class SimController(SimBase):
         SimBase.__init__(self)
 
     def main(self):
-        while True:
+        while not self.shutdown:
             time.sleep(1)
             os.write(self.pipe, b".")
 
@@ -267,7 +268,7 @@ class SimLight(SimBase):
         self.enable = False
 
     def main(self):
-        while True:
+        while not self.shutdown:
             time.sleep(1 / self.second)
             if not self.enable:
                 continue

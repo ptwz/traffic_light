@@ -112,7 +112,10 @@ class TrafficLight(MQTTItem):
         self.maxage = 4
         self.give_way = True
         self.temp_error = False
-        self.mqtt.message_callback_add(self.command_topic, self._process_mqtt_command)
+        if self.mqtt:
+            self.mqtt.message_callback_add(
+                self.command_topic, self._process_mqtt_command
+            )
 
     def __set__(self):
         return f"TrafficLight(name={self.name}, self.lamp_currents)"
@@ -131,7 +134,6 @@ class TrafficLight(MQTTItem):
         try:
             self.mqtt.publish(self.state_topic, self.to_json())
         except AttributeError as e:
-            print(e)
             """ If there is no MQTT connection, disregard """
             pass
 
@@ -303,7 +305,11 @@ class TrafficLightController(MQTTItem):
 
     def publish(self, give_way):
         payload = json.dumps({"give_way": bool(give_way)})
-        self.mqtt.publish(self.command_topic, payload, retain=True)
+        try:
+            self.mqtt.publish(self.command_topic, payload, retain=True)
+        except AttributeError as e:
+            """ If there is no MQTT connection, disregard """
+            pass
 
     def char_received(self, char):
         char = char.decode("latin-1")
@@ -391,7 +397,10 @@ class TrafficLightRemote(TrafficLight):
     """
 
     def __init__(self, name, mqtt_param, interval=10):
-        mqtt_param["name"] = "".join(random.choices("abcdefghijklmnopqrstuvwxyz", k=10))
+        if mqtt_param is not None:
+            mqtt_param["name"] = "".join(
+                random.choices("abcdefghijklmnopqrstuvwxyz", k=10)
+            )
         TrafficLight.__init__(self, name, mqtt_param, local=False)
 
     def _do_subscriptions(self):

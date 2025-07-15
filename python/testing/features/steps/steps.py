@@ -89,14 +89,19 @@ def bulb_defective(context, color, name):
 @when("I turn the traffic light {name} on")
 def turn_light_on(context, name):
     assert name in context.traffic_lights
+
     light = context.traffic_lights[name]
     if light["comm"] == True:
-        mqtt_data = {
-            "host": "127.0.0.1",
-            "port": context.mqtt["port"],
-            "username": context.mqtt["username"],
-            "password": context.mqtt["password"],
-        }
+        try:
+            mqtt_data = {
+                "host": "127.0.0.1",
+                "port": context.mqtt["port"],
+                "username": context.mqtt["username"],
+                "password": context.mqtt["password"],
+            }
+        except AttributeError:
+            print("No MQTT!!")
+            mqtt_data = None
         # Get name of the other light, too
         other_name = list(set(context.traffic_lights.keys()) - set(name)).pop()
 
@@ -168,7 +173,9 @@ def check_blink(context, color, name, duration):
         states.append((hw.red, hw.yellow, hw.green))
         if len(states) > 10:
             states.pop(0)
-        assert count < 30
+        assert count < 30, (
+            "States not converging " + str(states) + " " + hw.traffic_state
+        )
 
 
 @then("the {color} light of {name} must be on permanently")
