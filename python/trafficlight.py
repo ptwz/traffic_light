@@ -6,7 +6,22 @@ import random
 import time
 import serial
 import threading
+import queue
+import os
 import paho.mqtt.client as mqtt
+
+except_queue = queue.Queue()
+
+
+def thread_except(args):
+    import traceback
+
+    print(args.exc_type, args.exc_value)
+    traceback.print_tb(args.exc_traceback)
+    os._exit(-1)
+
+
+threading.excepthook = thread_except
 
 
 class MQTTItem:
@@ -109,7 +124,7 @@ class TrafficLight(MQTTItem):
         except json.JSONDecodeError:
             self.logger.warning("Could not parse command JSON: %s", message.payload)
             return
-        self.set_green(cmd["give_Way"])
+        self.set_green(cmd["give_way"])
 
     def publish(self):
         self.logger.debug(self.state)
@@ -288,7 +303,6 @@ class TrafficLightController(MQTTItem):
 
     def publish(self, give_way):
         payload = json.dumps({"give_way": bool(give_way)})
-        print(payload)
         self.mqtt.publish(self.command_topic, payload, retain=True)
 
     def char_received(self, char):
@@ -296,10 +310,10 @@ class TrafficLightController(MQTTItem):
         self.logger.debug("TrafficLightController: received: {}".format(char))
         if char == "g":
             self.publish(False)
-            self.group.send_update()
+            # self.group.send_update()
         elif char == "G":
             self.publish(True)
-            self.group.send_update()
+            # self.group.send_update()
 
     def send_update(self):
         """
@@ -311,8 +325,8 @@ class TrafficLightController(MQTTItem):
         packet = ["1" if int(x) > 10 else "0" for x in currents]
         # FIXME: Classify Battery local/remote in good/bad
         # packet += [str(self.group.state), str(self.group.batt_voltage)]
-        cmd = " ".join(packet)
-        self.sendLine(bytes(cmd.encode("ascii")))
+        cmd = " ".join(packet) + "\r\n"
+        self.serial.write(bytes(cmd.encode("ascii")))
 
 
 class TrafficLightGroup:

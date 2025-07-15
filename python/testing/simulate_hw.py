@@ -78,7 +78,8 @@ class SimController(SimBase):
             os.write(self.pipe, b".")
 
     def process(self, char):
-        print(char)
+        # print(char)
+        pass
 
     def press_green(self):
         os.write(self.pipe, b"G\n")
