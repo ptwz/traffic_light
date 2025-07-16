@@ -189,10 +189,11 @@ class TrafficLight(MQTTItem):
                 data["batt_voltage"],
                 data["lamp_currents"],
             )
-            (self.give_way, self.temp_error, self.last_seen) = (
+            (self.give_way, self.temp_error, self.last_seen, self._is_good) = (
                 data["give_way"],
                 data["temp_error"],
                 data["last_seen"],
+                data["good"],
             )
         except KeyError as e:
             if not data["alive"]:
@@ -371,19 +372,30 @@ class TrafficLightGroup:
         """
         good = self.is_good()
         if not good:
-            self.logger.info("Not good!")
+            self.logger.debug("Not good!")
+        else:
+            self.logger.debug("Good")
         self.local.set_temp_error(not good)
-
         self.lamp_currents = self.local.lamp_currents + self.remote.lamp_currents
+        """
+        print(
+            self.lamp_currents,
+            self.local.temp_error,
+            self.remote.temp_error,
+            self.local.is_good(),
+            self.remote.is_good(),
+        )
+        """
 
     def is_good(self):
         if not all([self.remote.seen(), self.local.seen()]):
             if not self.remote.seen():
-                self.logger.info("Remote not seen!")
+                self.logger.debug("Remote not seen!")
             if not self.local.seen():
-                self.logger.info("Local not seen!")
+                self.logger.debug("Local not seen!")
             return False
         if 9 in [self.local.state, self.remote.state]:
+            self.logger.debug("Error state seen!")
             # If an error was detected on either side, fail here, too
             return False
         return True
@@ -397,6 +409,7 @@ class TrafficLightRemote(TrafficLight):
     """
 
     def __init__(self, name, mqtt_param, interval=10):
+        self._is_good = False
         if mqtt_param is not None:
             mqtt_param["name"] = "".join(
                 random.choices("abcdefghijklmnopqrstuvwxyz", k=10)
@@ -409,12 +422,15 @@ class TrafficLightRemote(TrafficLight):
         self.mqtt.message_callback_add(self.state_topic, self._process_mqtt_state)
 
     def _process_mqtt_state(self, client, user_data, message):
-        self.logger.debug("TrafficLightRemote: got %s", message)
+        self.logger.debug("Message : %s", message.payload)
         self.from_json(message.payload)
         # self.last_seen = time.time()
 
     def publish(self):
         assert False, "Should never be called"
+
+    def is_good(self):
+        return self._is_good
 
 
 class TrafficLightSerial(TrafficLight):
@@ -448,7 +464,7 @@ class TrafficLightSerial(TrafficLight):
 
     def _tx_thread(self):
         while not self._shutdown:
-            time.sleep(0.1)
+            time.sleep(5)
             self.send_update()
 
     def handle_line(self, line):
@@ -465,6 +481,7 @@ class TrafficLightSerial(TrafficLight):
                 self.lamp_currents[1],
                 self.lamp_currents[2],
             ) = line.split(" ")
+            self.state = int(self.state)
             self.last_seen = time.time()
             self.publish()
         except (ValueError, UnicodeDecodeError):

@@ -5,6 +5,19 @@ import pty
 import select
 import logging
 
+STATE_MAP = {
+    "TRAFFIC_TEST_RED": 0,
+    "TRAFFIC_TEST_RED_YELLOW": 1,
+    "TRAFFIC_TEST_RED_YELLOW_GREEN": 2,
+    "TRAFFIC_GREEN": 3,
+    "TRAFFIC_YELLOW": 4,
+    "TRAFFIC_RED": 5,
+    "TRAFFIC_RED_YELLOW": 6,
+    "TRAFFIC_TEMP_ERROR_DARK": 7,
+    "TRAFFIC_TEMP_ERROR": 8,
+    "TRAFFIC_FAIL": 9,
+}
+
 
 class SimBase:
     def __init__(self):
@@ -18,7 +31,7 @@ class SimBase:
         # self.pts, self.pipe, self.poll =
         self._get_pts()
         self.ready = False
-        self.shutdown = False
+        self._shutdown = False
         self._reader_task = threading.Thread(target=self.reader_task, daemon=True)
         self._reader_task.start()
         self._main_task = threading.Thread(target=self.main, daemon=True)
@@ -65,7 +78,7 @@ class SimBase:
         pass
 
     def main(self):
-        while not self.shutdown:
+        while not self._shutdown:
             time.sleep(1)
 
 
@@ -74,7 +87,7 @@ class SimController(SimBase):
         SimBase.__init__(self)
 
     def main(self):
-        while not self.shutdown:
+        while not self._shutdown:
             time.sleep(1)
             os.write(self.pipe, b".")
 
@@ -137,7 +150,6 @@ class SimLight(SimBase):
 
     def traffic_statemachine(self):
         oldstate = self.traffic_state
-
         if self.traffic_state == "TRAFFIC_TEST_RED":
             self.red = 1
             self.yellow = 0
@@ -267,8 +279,11 @@ class SimLight(SimBase):
     def switch_off(self):
         self.enable = False
 
+    def shutdown(self):
+        self._shutdown = True
+
     def main(self):
-        while not self.shutdown:
+        while not self._shutdown:
             time.sleep(1 / self.second)
             if not self.enable:
                 continue
@@ -277,6 +292,6 @@ class SimLight(SimBase):
             self.traffic_statemachine()
 
             if self.ready:
-                telegram = f"{self.traffic_state} {self.batt_voltage} {self.error_state} {self.sense['red']} {self.sense['yellow']} {self.sense['green']}\r\n"
+                telegram = f"{STATE_MAP[self.traffic_state]} {self.batt_voltage} {self.error_state} {self.sense['red']} {self.sense['yellow']} {self.sense['green']}\r\n"
 
                 os.write(self.pipe, telegram.encode("latin-1"))

@@ -103,7 +103,7 @@ def turn_light_on(context, name):
             print("No MQTT!!")
             mqtt_data = None
         # Get name of the other light, too
-        other_name = list(set(context.traffic_lights.keys()) - set(name)).pop()
+        other_name = list(set(context.traffic_lights.keys()) - set([name])).pop()
 
         light["comm"] = trafficlight.TrafficLightGroup(
             name, light["hardware"].pts, other_name, mqtt_data
@@ -115,7 +115,7 @@ def turn_light_on(context, name):
             light["controller_comm"].connect()
 
     light["hardware"].switch_on()
-    # Start up hardware first, then br`ing up "pi" if any
+    # Start up hardware first, then bring up "pi" if any
 
 
 @when("I press the {color} button on the controller of {name}")
