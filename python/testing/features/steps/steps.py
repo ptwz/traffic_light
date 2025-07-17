@@ -66,13 +66,10 @@ def have_mqtt_server(context):
     ])
 
     # Now start mosquitto process
-    import sys
-
     context.mqtt["daemon"] = subprocess.Popen(
         ["mosquitto", "-c", "/tmp/mosquitto.conf"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        # stderr=sys.stdout,
     )
     # Give server some time to start up
     time.sleep(1)
@@ -176,6 +173,22 @@ def check_blink(context, color, name, duration):
         assert count < 30, (
             "States not converging " + str(states) + " " + hw.traffic_state
         )
+
+
+@when("the communication of {name} is interrupted for {duration} seconds")
+def comm_interrupted(context, name, duration):
+    pass
+
+
+@when("the communication of {name} is restored")
+def comm_fixed(context, name):
+    pass
+
+
+@then("the {color} light of both lights must be on permanently")
+def check_all_on(context, color, name):
+    for name, light in context.traffic_lights.items():
+        assert light["hardware"].is_on(color), f"{name} should be permanently {color}"
 
 
 @then("the {color} light of {name} must be on permanently")
