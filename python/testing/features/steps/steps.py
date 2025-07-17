@@ -183,5 +183,5 @@ def check_on(context, color, name):
     # TODO: Check if permanent!!
     light = context.traffic_lights[name]
     assert light["hardware"].is_on(color), (
-        str(light["comm"]) + " Should be permanently green"
+        str(light["comm"]) + " Should be permanently " + color
     )
