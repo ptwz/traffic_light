@@ -25,20 +25,24 @@ threading.excepthook = thread_except
 
 
 class MQTTItem:
-    def __init__(self, name, mqtt_param):
+    def __init__(self, name, mqtt_param, anonymous=False):
         self.mqtt_param = mqtt_param
         self.name = name
         self._shutdown = False
+        self._anonymous = anonymous
         self._connect_mqtt()
 
     def _connect_mqtt(self):
         mqtt_param = self.mqtt_param
         if mqtt_param:
             # For clients with temporary name (listeners)
-            if "name" in mqtt_param:
-                name = mqtt_param["name"]
+            if not self._anonymous:
+                if "name" in mqtt_param:
+                    name = mqtt_param["name"]
+                else:
+                    name = self.name
             else:
-                name = self.name
+                name = None
             self.mqtt = mqtt.Client(client_id=name)
             self.mqtt.username_pw_set(
                 username=mqtt_param["username"], password=mqtt_param["password"]
@@ -69,6 +73,7 @@ class MQTTItem:
         self._do_subscriptions()
 
     def _do_subscriptions(self):
+        self.logger.debug("Subscribe command")
         self.mqtt.subscribe(self.command_topic)
 
     def _mqtt_disconnected(self, client, userdata, rc, x=None, y=None, z=None):
@@ -104,7 +109,7 @@ class TrafficLight(MQTTItem):
             logname = "remote-" + logname
 
         self.logger = logging.getLogger(logname)
-        MQTTItem.__init__(self, name, mqtt_param)
+        MQTTItem.__init__(self, name, mqtt_param, anonymous=not local)
         self.state = 99
         self.batt_voltage = 0
         self.lamp_currents = [0] * 3
@@ -121,7 +126,7 @@ class TrafficLight(MQTTItem):
         return f"TrafficLight(name={self.name}, self.lamp_currents)"
 
     def _process_mqtt_command(self, client, user_data, message):
-        self.logger.debug("TrafficLight got ", message)
+        self.logger.debug("TrafficLight got: %s ", message)
         try:
             cmd = json.loads(message.payload)
         except json.JSONDecodeError:
@@ -227,7 +232,7 @@ class TrafficLight(MQTTItem):
             if error_state:
                 self.logger.info("Received temp error")
             else:
-                self.logger.info("No temp error")
+                self.logger.debug("No temp error")
             self.temp_error = error_state
             self.send_update()
 
@@ -262,15 +267,16 @@ class TrafficLightController(MQTTItem):
         self.light_status = {}
 
     def _do_subscriptions(self):
+        self.logger.debug("Adding subscritions")
         self.mqtt.subscribe("ampel/+/state")
-        self.mqtt.message_callback_add(self.state_topic, self.handle_state)
+        self.mqtt.message_callback_add("ampel/+/state", self.handle_state)
 
     def handle_state(self, client, user_data, message):
         logging.debug("TrafficLightController got ", str(message))
         m = re.search(r"ampel/(.[a-zA-Z0-9/]+)/state", message.topic)
         if m:
             name = m.group(0)
-            self.light_status[name] = json.loads(message.body)
+            self.light_status[name] = json.loads(message.payload)
 
     def connect(self):
         ports = self.plausible_ports
@@ -279,7 +285,7 @@ class TrafficLightController(MQTTItem):
 
         for name in ports:
             try:
-                self.serial = serial.Serial(name, self.baud, timeout=0.5)
+                self.serial = serial.Serial(name, self.baud, timeout=0.1)
                 self.rx_thread = threading.Thread(target=self._rx_thread, daemon=True)
                 self.rx_thread.start()
                 self.tx_thread = threading.Thread(target=self._tx_thread, daemon=True)
@@ -289,9 +295,9 @@ class TrafficLightController(MQTTItem):
                 continue
         return False
 
-    def connectionLost(self):
-        while not self.connect():
-            time.sleep(0.5)
+    def shutdown(self):
+        self.logger.debug("Shutdown!")
+        self._shutdown = True
 
     def _rx_thread(self):
         while not self._shutdown:
@@ -308,6 +314,7 @@ class TrafficLightController(MQTTItem):
         payload = json.dumps({"give_way": bool(give_way)})
         try:
             self.mqtt.publish(self.command_topic, payload, retain=True)
+            self.logger.debug("Published command!")
         except AttributeError as e:
             """ If there is no MQTT connection, disregard """
             pass
@@ -415,11 +422,11 @@ class TrafficLightRemote(TrafficLight):
                 random.choices("abcdefghijklmnopqrstuvwxyz", k=10)
             )
         TrafficLight.__init__(self, name, mqtt_param, local=False)
+        self.mqtt.message_callback_add(self.state_topic, self._process_mqtt_state)
 
     def _do_subscriptions(self):
         self.logger.debug("subscribe to: %s", self.state_topic)
         self.mqtt.subscribe(self.state_topic)
-        self.mqtt.message_callback_add(self.state_topic, self._process_mqtt_state)
 
     def _process_mqtt_state(self, client, user_data, message):
         self.logger.debug("Message : %s", message.payload)
@@ -520,14 +527,18 @@ class TrafficLightSerial(TrafficLight):
             raise ValueError("Unknown parameter {}".format(param))
 
     def send_update(self):
+        self.logger.debug("send_update: give_way=%s", self.give_way)
+        cmd = b""
         if self.give_way:
-            self.ser.write("G".encode("ascii"))
+            cmd += b"G"
         else:
-            self.ser.write("g".encode("ascii"))
+            cmd += b"g"
         if self.temp_error:
-            self.ser.write("E".encode("ascii"))
+            cmd += b"E"
         else:
-            self.ser.write("e".encode("ascii"))
+            cmd += b"e"
+        self.logger.debug("Sending: %s", cmd)
+        self.ser.write(cmd)
 
     def shutdown(self):
         TrafficLight.shutdown(self)
