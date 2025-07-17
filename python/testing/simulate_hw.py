@@ -71,8 +71,9 @@ class SimBase:
                     self.ready = True
 
                 if events & select.POLLIN:
-                    data = os.read(self.pipe, 1)
-                    self.process(data.decode("latin-1"))
+                    data = os.read(self.pipe, 10)
+                    for char in data.decode("latin-1"):
+                        self.process(char)
 
     def process(self, line):
         pass
