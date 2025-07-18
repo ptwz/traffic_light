@@ -7,7 +7,9 @@ import string
 import random
 import os
 import signal
+import testing.mosquitto_dynsec as dynsec
 import logging
+import sys
 from testing.simulate_hw import SimLight, SimController
 
 
@@ -52,23 +54,26 @@ def have_mqtt_server(context):
         "port": 1883,
         "username": "ampel",
         "password": "".join(random.choice(string.ascii_lowercase) for i in range(16)),
+        "adminpassword": "".join(
+            random.choice(string.ascii_lowercase) for i in range(16)
+        ),
         "passwdfile": "/tmp/mosquitto.passwd",
     }
 
     with open("/tmp/mosquitto.conf", "w") as f:
-        f.write(f"password_file {context.mqtt['passwdfile']}\n")
+        # f.write(f"password_file {context.mqtt['passwdfile']}\n")
         f.write(f"listener {context.mqtt['port']}\n")
         f.write("plugin /usr/lib/x86_64-linux-gnu/mosquitto_dynamic_security.so\n")
         f.write("plugin_opt_config_file /tmp/dynamic_security.json\n")
 
-    # Now (re)generate mosquitto.passwd
+    # Now generate dynamic_security.json
     subprocess.run([
-        "mosquitto_passwd",
-        "-c",
-        "-b",
-        context.mqtt["passwdfile"],
-        context.mqtt["username"],
-        context.mqtt["password"],
+        "mosquitto_ctrl",
+        "dynsec",
+        "init",
+        "/tmp/dynamic_security.json",
+        "admin",
+        context.mqtt["adminpassword"],
     ])
 
     # Now start mosquitto process
@@ -76,9 +81,42 @@ def have_mqtt_server(context):
         ["mosquitto", "-c", "/tmp/mosquitto.conf"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        # stderr=sys.stdout,
     )
     # Give server some time to start up
     time.sleep(1)
+    # TODO: Wait for ready output instead of sleeping randomly
+
+    # Set up roles for failed and working MQTT
+    dynsec.add_role(
+        "admin",
+        context.mqtt["adminpassword"],
+        role_name="mqtt_ok",
+    )
+    for acltype in {"subscribePattern", "publishClientReceive", "publishClientSend"}:
+        dynsec.add_role_acl(
+            "admin",
+            context.mqtt["adminpassword"],
+            role_name="mqtt_ok",
+            acltype=acltype,
+            pattern="ampel/#",
+            mode="allow",
+        )
+
+    dynsec.add_role(
+        "admin",
+        context.mqtt["adminpassword"],
+        role_name="mqtt_fail",
+    )
+    for acltype in {"subscribePattern", "publishClientReceive", "publishClientSend"}:
+        dynsec.add_role_acl(
+            "admin",
+            context.mqtt["adminpassword"],
+            role_name="mqtt_fail",
+            acltype=acltype,
+            pattern="ampel/#",
+            mode="deny",
+        )
 
 
 @given("the {color} bulb of {name} is defective")
@@ -93,17 +131,27 @@ def bulb_defective(context, color, name):
 def turn_light_on(context, name):
     assert name in context.traffic_lights
 
+    mqtt_data = {
+        "host": "127.0.0.1",
+        "port": context.mqtt["port"],
+        "username": name,
+        "password": "".join(random.choice(string.ascii_lowercase) for i in range(16)),
+    }
+
+    dynsec.add_client(
+        "admin",
+        context.mqtt["adminpassword"],
+        mqtt_data["username"],
+        mqtt_data["password"],
+    )
+    # By default, allow MQTT communication
+    dynsec.add_client_role("admin", context.mqtt["adminpassword"], name, "mqtt_ok")
+
     light = context.traffic_lights[name]
     if light["comm"] == True:
         env = os.environ.copy()
-        mqtt_data = {
-            "host": "127.0.0.1",
-            "port": context.mqtt["port"],
-            "username": context.mqtt["username"],
-            "password": context.mqtt["password"],
-        }
 
-        env["MQTT_PASS"] = context.mqtt["password"]
+        env["MQTT_PASS"] = mqtt_data["password"]
 
         # Get name of the other light, too
         other_name = list(set(context.traffic_lights.keys()) - set([name])).pop()
@@ -119,7 +167,6 @@ def turn_light_on(context, name):
             "-u",
             mqtt_data["username"],
         ]
-        print(args)
         light["comm"] = subprocess.Popen(
             args,
             env=env,
@@ -198,19 +245,20 @@ def check_blink(context, color, name, duration):
 @when("the communication of {name} is interrupted for {duration} seconds")
 def comm_interrupted(context, name, duration):
     assert name in context.traffic_lights
-    light = context.traffic_lights[name]
-    light["comm"].send_signal(signal.SIGSTOP)
+    dynsec.remove_client_role("admin", context.mqtt["adminpassword"], name, "mqtt_ok")
+    dynsec.add_client_role("admin", context.mqtt["adminpassword"], name, "mqtt_fail")
+    time.sleep(int(duration))
 
 
 @when("the communication of {name} is restored")
 def comm_fixed(context, name):
     assert name in context.traffic_lights
-    light = context.traffic_lights[name]
-    light["comm"].send_signal(signal.SIGCONT)
+    dynsec.remove_client_role("admin", context.mqtt["adminpassword"], name, "mqtt_fail")
+    dynsec.add_client_role("admin", context.mqtt["adminpassword"], name, "mqtt_ok")
 
 
 @then("the {color} light of both lights must be on permanently")
-def check_all_on(context, color, name):
+def check_all_on(context, color):
     for name, light in context.traffic_lights.items():
         assert light["hardware"].is_on(color), f"{name} should be permanently {color}"
 
