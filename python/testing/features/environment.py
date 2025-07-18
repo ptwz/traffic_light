@@ -10,7 +10,7 @@ def after_scenario(context, scenario):
         light["hardware"].switch_off()
         light["hardware"].shutdown = True
         try:
-            light["comm"].shutdown()
+            light["comm"].terminate()
         except AttributeError:
             pass
         try:
@@ -18,7 +18,7 @@ def after_scenario(context, scenario):
         except AttributeError:
             pass
     try:
-        context.mqtt["daemon"].terminate()
+        context.mqtt["daemon"].kill()
         time.sleep(5)
         del context.mqtt
     except AttributeError:

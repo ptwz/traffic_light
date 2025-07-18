@@ -1,4 +1,5 @@
 Feature: The system must be able to withstand communication issues in a safe and secure manner
+	@wip
         Scenario Outline: If any light has a broken MQTT connection, both light must indicate a communication failure
                 Given I have an mqtt server
                 And I have one traffic light called hangar with a controller
@@ -31,6 +32,7 @@ Feature: The system must be able to withstand communication issues in a safe and
                 | hangar         | railroad             | 60      |
                 | railroad       | hangar               | 60      |
 
+	@wip
         Scenario: If the MQTT connection of a light becomes severed, the lights must resynchonize once the connection is restored
                 Given I have an mqtt server
                 And I have one traffic light called hangar with a controller

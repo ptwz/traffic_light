@@ -5,6 +5,9 @@ import subprocess
 import time
 import string
 import random
+import os
+import signal
+import logging
 from testing.simulate_hw import SimLight, SimController
 
 
@@ -51,9 +54,12 @@ def have_mqtt_server(context):
         "password": "".join(random.choice(string.ascii_lowercase) for i in range(16)),
         "passwdfile": "/tmp/mosquitto.passwd",
     }
+
     with open("/tmp/mosquitto.conf", "w") as f:
         f.write(f"password_file {context.mqtt['passwdfile']}\n")
         f.write(f"listener {context.mqtt['port']}\n")
+        f.write("plugin /usr/lib/x86_64-linux-gnu/mosquitto_dynamic_security.so\n")
+        f.write("plugin_opt_config_file /tmp/dynamic_security.json\n")
 
     # Now (re)generate mosquitto.passwd
     subprocess.run([
@@ -89,22 +95,36 @@ def turn_light_on(context, name):
 
     light = context.traffic_lights[name]
     if light["comm"] == True:
-        try:
-            mqtt_data = {
-                "host": "127.0.0.1",
-                "port": context.mqtt["port"],
-                "username": context.mqtt["username"],
-                "password": context.mqtt["password"],
-            }
-        except AttributeError:
-            print("No MQTT!!")
-            mqtt_data = None
+        env = os.environ.copy()
+        mqtt_data = {
+            "host": "127.0.0.1",
+            "port": context.mqtt["port"],
+            "username": context.mqtt["username"],
+            "password": context.mqtt["password"],
+        }
+
+        env["MQTT_PASS"] = context.mqtt["password"]
+
         # Get name of the other light, too
         other_name = list(set(context.traffic_lights.keys()) - set([name])).pop()
-
-        light["comm"] = trafficlight.TrafficLightGroup(
-            name, light["hardware"].pts, other_name, mqtt_data
+        args = [
+            "python3",
+            "main.py",
+            mqtt_data["host"],
+            name,
+            other_name,
+            light["hardware"].pts,
+            "-p",
+            str(mqtt_data["port"]),
+            "-u",
+            mqtt_data["username"],
+        ]
+        print(args)
+        light["comm"] = subprocess.Popen(
+            args,
+            env=env,
         )
+
         if light["controller"]:
             light["controller_comm"] = trafficlight.TrafficLightController(
                 name + "-controller", mqtt_data, port=light["controller"].pts
@@ -177,12 +197,16 @@ def check_blink(context, color, name, duration):
 
 @when("the communication of {name} is interrupted for {duration} seconds")
 def comm_interrupted(context, name, duration):
-    pass
+    assert name in context.traffic_lights
+    light = context.traffic_lights[name]
+    light["comm"].send_signal(signal.SIGSTOP)
 
 
 @when("the communication of {name} is restored")
 def comm_fixed(context, name):
-    pass
+    assert name in context.traffic_lights
+    light = context.traffic_lights[name]
+    light["comm"].send_signal(signal.SIGCONT)
 
 
 @then("the {color} light of both lights must be on permanently")
