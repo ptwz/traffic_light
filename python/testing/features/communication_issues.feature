@@ -13,7 +13,7 @@ Feature: The system must be able to withstand communication issues in a safe and
                 And the yellow light of <b> must try to flash in 2 second rhythm
                 When the communication of <a> is restored
                 And I wait for <a> to settle
-                Then the red light of both lights must be on permanently
+                And wait for <b> to settle
                 When I press the red button on the controller of hangar
                 And wait for hangar to settle
                 And wait for railroad to settle

@@ -66,15 +66,23 @@ def have_mqtt_server(context):
         f.write("plugin /usr/lib/x86_64-linux-gnu/mosquitto_dynamic_security.so\n")
         f.write("plugin_opt_config_file /tmp/dynamic_security.json\n")
 
+    try:
+        os.unlink("/tmp/dynamic_security.json")
+    except FileNotFoundError:
+        pass
     # Now generate dynamic_security.json
-    subprocess.run([
-        "mosquitto_ctrl",
-        "dynsec",
-        "init",
-        "/tmp/dynamic_security.json",
-        "admin",
-        context.mqtt["adminpassword"],
-    ])
+    subprocess.run(
+        [
+            "mosquitto_ctrl",
+            "dynsec",
+            "init",
+            "/tmp/dynamic_security.json",
+            "admin",
+            context.mqtt["adminpassword"],
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
     # Now start mosquitto process
     context.mqtt["daemon"] = subprocess.Popen(
@@ -131,25 +139,26 @@ def bulb_defective(context, color, name):
 def turn_light_on(context, name):
     assert name in context.traffic_lights
 
-    mqtt_data = {
-        "host": "127.0.0.1",
-        "port": context.mqtt["port"],
-        "username": name,
-        "password": "".join(random.choice(string.ascii_lowercase) for i in range(16)),
-    }
-
-    dynsec.add_client(
-        "admin",
-        context.mqtt["adminpassword"],
-        mqtt_data["username"],
-        mqtt_data["password"],
-    )
-    # By default, allow MQTT communication
-    dynsec.add_client_role("admin", context.mqtt["adminpassword"], name, "mqtt_ok")
-
     light = context.traffic_lights[name]
     if light["comm"] == True:
         env = os.environ.copy()
+        mqtt_data = {
+            "host": "127.0.0.1",
+            "port": context.mqtt["port"],
+            "username": name,
+            "password": "".join(
+                random.choice(string.ascii_lowercase) for i in range(16)
+            ),
+        }
+
+        dynsec.add_client(
+            "admin",
+            context.mqtt["adminpassword"],
+            mqtt_data["username"],
+            mqtt_data["password"],
+        )
+        # By default, allow MQTT communication
+        dynsec.add_client_role("admin", context.mqtt["adminpassword"], name, "mqtt_ok")
 
         env["MQTT_PASS"] = mqtt_data["password"]
 
