@@ -276,7 +276,10 @@ class TrafficLightController(MQTTItem):
         m = re.search(r"ampel/(.[a-zA-Z0-9/]+)/state", message.topic)
         if m:
             name = m.group(0)
-            self.light_status[name] = json.loads(message.payload)
+            try:
+                self.light_status[name] = json.loads(message.payload)
+            except json.JSONDecodeError:
+                self.logger.error("Could not decode %s for %s", message.payload, name)
 
     def connect(self):
         ports = self.plausible_ports
