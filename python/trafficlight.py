@@ -265,6 +265,7 @@ class TrafficLightController(MQTTItem):
         self.port = port
         self.serial = None
         self.light_status = {}
+        self.ok = False
 
     def _do_subscriptions(self):
         self.logger.debug("Adding subscritions")
@@ -285,14 +286,16 @@ class TrafficLightController(MQTTItem):
         ports = self.plausible_ports
         if self.port:
             ports = [self.port] + ports
+        self._shutdown = False
 
         for name in ports:
             try:
-                self.serial = serial.Serial(name, self.baud, timeout=0.1)
+                self.serial = serial.Serial(name, self.baud)
                 self.rx_thread = threading.Thread(target=self._rx_thread, daemon=True)
                 self.rx_thread.start()
                 self.tx_thread = threading.Thread(target=self._tx_thread, daemon=True)
                 self.tx_thread.start()
+                self.ok = True
                 return True
             except serial.SerialException:
                 continue
@@ -304,13 +307,20 @@ class TrafficLightController(MQTTItem):
 
     def _rx_thread(self):
         while not self._shutdown:
-            char = self.serial.read(1)
+            try:
+                char = self.serial.read(1)
+                if not len(char):
+                    self._shutdown = True
+                    self.ok = False
+            except serial.SerialException:
+                self.ok = False
+                self._shutdown = True
             if char:
                 self.char_received(char)
 
     def _tx_thread(self):
         while not self._shutdown:
-            time.sleep(0.1)
+            time.sleep(0.2)
             self.send_update()
 
     def publish(self, give_way):
@@ -343,7 +353,11 @@ class TrafficLightController(MQTTItem):
         # FIXME: Classify Battery local/remote in good/bad
         # packet += [str(self.group.state), str(self.group.batt_voltage)]
         cmd = " ".join(packet) + "\r\n"
-        self.serial.write(bytes(cmd.encode("ascii")))
+        try:
+            self.serial.write(bytes(cmd.encode("ascii")))
+        except serial.SerialException:
+            self.ok = False
+            self._shutdown = True
 
 
 class TrafficLightGroup:
