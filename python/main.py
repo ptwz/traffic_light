@@ -2,7 +2,7 @@ import argparse
 import os
 import time
 import logging
-from trafficlight import TrafficLightGroup
+from trafficlight import TrafficLightGroup, TrafficLightController
 
 parser = argparse.ArgumentParser(description="Trafflic light controller")
 
@@ -13,6 +13,7 @@ parser.add_argument("tty")
 parser.add_argument("-l", "--log-level")
 parser.add_argument("-u", "--username")
 parser.add_argument("-p", "--port", default=1883, type=int)
+parser.add_argument("-c", "--controller", action="store_true")
 
 args = parser.parse_args()
 
@@ -29,6 +30,12 @@ mqtt_param = {
 }
 
 group = TrafficLightGroup(args.name, args.tty, args.remotename, mqtt_param)
+if args.controller:
+    controller = TrafficLightController(args.name + "-controller", mqtt_param)
+else:
+    controller = None
 
 while True:
-    time.sleep(0.1)
+    time.sleep(2)
+    if controller and not controller.ok:
+        controller.connect()
