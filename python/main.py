@@ -12,7 +12,6 @@ parser.add_argument("remotename")
 parser.add_argument("tty")
 parser.add_argument("-l", "--log-level")
 parser.add_argument("-u", "--username")
-parser.add_argument("-s", "--server", default=None)
 parser.add_argument("-p", "--port", default=1883, type=int)
 
 args = parser.parse_args()
