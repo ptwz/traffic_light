@@ -30,7 +30,27 @@ class MQTTItem:
         self.name = name
         self._shutdown = False
         self._anonymous = anonymous
-        self._connect_mqtt()
+        self._connected = False
+        try:
+            self._connect_mqtt()
+        except OSError:
+            # In case MQTT does not come up, run helper in background
+            self.retry_thread = threading.Thread(
+                target=self._retry_connect_mqtt, daemon=True
+            )
+            self.retry_thread.start()
+
+    def _retry_connect_mqtt(self):
+        # Thread called in case MQTT does not connect immediately
+        while True:
+            time.sleep(1)
+            try:
+                self._connect_mqtt()
+                # On success -> exit
+                return
+            except OSError:
+                # In case MQTT does not come up
+                pass
 
     def _connect_mqtt(self):
         mqtt_param = self.mqtt_param
