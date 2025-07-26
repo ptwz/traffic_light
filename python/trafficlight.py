@@ -492,7 +492,7 @@ class TrafficLightSerial(TrafficLight):
     def __init__(self, name, mqtt_param, port, reset_pin=None):
         TrafficLight.__init__(self, name, mqtt_param)
         self.set_logger(logging.getLogger(name))
-        self.ser = serial.Serial(port, self.baud)
+        self.ser = serial.Serial(port, self.baud, timeout=1)
         self.set_port(port)
         self.set_reset(reset_pin)
         self.send_update()
@@ -500,6 +500,7 @@ class TrafficLightSerial(TrafficLight):
         self.rx_thread.start()
         self.tx_thread = threading.Thread(target=self._tx_thread, daemon=True)
         self.tx_thread.start()
+        self.rx_err = 0
 
     def _rx_thread(self):
         while not self._shutdown:
@@ -514,6 +515,7 @@ class TrafficLightSerial(TrafficLight):
     def handle_line(self, line):
         # Ignore blank lines
         if not line:
+            self.err()
             return
         try:
             line = line.strip()
@@ -529,17 +531,25 @@ class TrafficLightSerial(TrafficLight):
             self.last_seen = time.time()
 
             self.publish()
+            self.rx_err = 0
         except (ValueError, UnicodeDecodeError):
-            self.logger.info("Received garbled line")
+            self.err()
+            self.logger.info("Received garbled line: %d -  %s", self.rx_err, line)
+
+    def err(self):
+        self.rx_err += 1
+        if self.rx_err > 10:
             self.reopen()
+
 
     def reopen(self):
         """
         Establish a reader/writer thread
         """
         self.ser.close()
+        serial.Serial(self.port, 9600).close()
         time.sleep(1)
-        self.ser = serial.Serial(self.port, self.baud)
+        self.ser = serial.Serial(self.port, self.baud, timeout=1)
         self.send_update()
 
     def set_port(self, port):
