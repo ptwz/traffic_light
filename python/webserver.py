@@ -22,10 +22,14 @@ def handle_state(client, user_data, message):
             logger.error("Could not decode %s for %s", message.payload, name)
 
 
-def on_connected():
-    logger.debug("Adding subscritions")
+def on_connected(client, userdata, connect_flags, reason_code, properties=None):
+    print("Adding subscritions")
     mqtt_conn.subscribe("ampel/+/state")
     mqtt_conn.message_callback_add("ampel/+/state", handle_state)
+
+
+def on_disconnect(client, userdata, rc, x=None, y=None, z=None):
+    print(" MQTT disconnect: %s", rc)
 
 
 def connect_mqtt():
@@ -35,7 +39,9 @@ def connect_mqtt():
     )
 
     mqtt_conn.on_connect = on_connected
+    mqtt_conn.on_disconnect = on_disconnect
     mqtt_conn.connect(environ["MQTT_HOST"], int(environ["MQTT_PORT"]))
+    mqtt_conn.loop_start()
     return mqtt_conn
 
 
