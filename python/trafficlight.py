@@ -531,11 +531,13 @@ class TrafficLightSerial(TrafficLight):
             self.publish()
         except (ValueError, UnicodeDecodeError):
             self.logger.info("Received garbled line")
+            self.reopen()
 
     def reopen(self):
         """
         Establish a reader/writer thread
         """
+        self.serial.close()
         self.serial = serial.Serial(self.port, self.baud)
         self.send_update()
 
