@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from os import environ
 import paho.mqtt.client as mqtt
 
@@ -40,13 +40,7 @@ def connect_mqtt():
 
 
 mqtt_conn = connect_mqtt()
-app = Flask(__name__)
-
-
-@app.route("/")
-def slash():
-    return app.send_static_file("static/index.html")
-
+app = Flask(__name__, static_folder="../website")
 
 @app.route("/api/v1/states", methods=["GET"])
 def get_state():
@@ -64,3 +58,12 @@ def send_command():
     mqtt_conn.publish("ampel/command", payload, retain=True)
     logger.debug("Published command!")
     return jsonify({"message": "ok"}), 200
+
+@app.route('/', defaults=dict(filename=None))
+@app.route('/<path:filename>', methods=['GET', 'POST'])
+def index(filename):
+    filename = filename or 'index.html'
+    if request.method == 'GET':
+        return send_from_directory('../website', filename)
+
+    return jsonify(request.data)
