@@ -503,7 +503,7 @@ class TrafficLightSerial(TrafficLight):
 
     def _rx_thread(self):
         while not self._shutdown:
-            line = self.ser.read_until()
+            line = self.ser.read_until(size=30)
             self.handle_line(line.decode("latin-1"))
 
     def _tx_thread(self):
@@ -527,6 +527,7 @@ class TrafficLightSerial(TrafficLight):
             ) = line.split(" ")
             self.state = int(self.state)
             self.last_seen = time.time()
+
             self.publish()
         except (ValueError, UnicodeDecodeError):
             self.logger.info("Received garbled line")
