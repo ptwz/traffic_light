@@ -491,6 +491,7 @@ class TrafficLightSerial(TrafficLight):
 
     def __init__(self, name, mqtt_param, port, reset_pin=None):
         TrafficLight.__init__(self, name, mqtt_param)
+        self.rx_err = 0
         self.set_logger(logging.getLogger(name))
         self.ser = serial.Serial(port, self.baud, timeout=1)
         self.set_port(port)
@@ -500,7 +501,6 @@ class TrafficLightSerial(TrafficLight):
         self.rx_thread.start()
         self.tx_thread = threading.Thread(target=self._tx_thread, daemon=True)
         self.tx_thread.start()
-        self.rx_err = 0
 
     def _rx_thread(self):
         while not self._shutdown:
@@ -540,7 +540,6 @@ class TrafficLightSerial(TrafficLight):
         self.rx_err += 1
         if self.rx_err > 10:
             self.reopen()
-
 
     def reopen(self):
         """
