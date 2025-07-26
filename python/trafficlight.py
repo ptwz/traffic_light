@@ -579,7 +579,11 @@ class TrafficLightSerial(TrafficLight):
         else:
             cmd += b"e"
         self.logger.debug("Sending: %s", cmd)
-        self.ser.write(cmd)
+        try:
+            self.ser.write(cmd)
+        except serial.PortNotOpenError:
+            # Disregard, we're reconnecting ..
+            pass
 
     def shutdown(self):
         TrafficLight.shutdown(self)
