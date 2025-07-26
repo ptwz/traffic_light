@@ -56,10 +56,11 @@ def get_state():
 
 @app.route("/api/v1/command", methods=["POST"])
 def send_command():
-    if not request.json or request.json not in [True, False]:
+    print(request.json)
+    if not request.json or request.json["give_way"] not in [True, False]:
         return jsonify({"message": "bad request"}), 400
 
-    give_way = request.json
+    give_way = request.json["give_way"]
 
     payload = json.dumps({"give_way": bool(give_way)})
     mqtt_conn.publish("ampel/command", payload, retain=True)

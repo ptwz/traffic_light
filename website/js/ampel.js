@@ -6,12 +6,11 @@ traffic_light = function (name, root_element) {
         this.group_key = "";
         this.loaded = false;
         this.set_way=function(value){
-                        $.post(me.name,
-                                {
-                                        "giveway": value,
-                                        "key": me.group_key
-                                },
-                        );
+                        $.ajax("/api/v1/command", {
+                                data : JSON.stringify({"give_way": !!value}),
+                            contentType : 'application/json',
+                            type : 'POST',
+                        });
                 };
         this.error=function(textStatus){
                 me.error_count++;
@@ -43,10 +42,10 @@ traffic_light = function (name, root_element) {
                         me.root_element.show();
                 }
         });
-        $(".setred",this.root_element).click( function(){
+        $(".setred").click( function(){
                 me.set_way(0);
         });
-        $(".setgreen",this.root_element).click( function(){
+        $(".setgreen").click( function(){
                 me.set_way(1);
         });
 }
