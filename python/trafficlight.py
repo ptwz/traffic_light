@@ -31,6 +31,8 @@ class MQTTItem:
         self._shutdown = False
         self._anonymous = anonymous
         self._connected = False
+        self.state_topic = f"ampel/{self.name}/state"
+        self.command_topic = "ampel/command"
         try:
             self._connect_mqtt()
         except OSError:
@@ -73,8 +75,6 @@ class MQTTItem:
             self.mqtt.on_connect_fail = self._mqtt_fail
             self.mqtt.connect(mqtt_param["host"], mqtt_param["port"])
             # TODO Enable TLS if necessary!!!
-            self.state_topic = f"ampel/{self.name}/state"
-            self.command_topic = "ampel/command"
             self.mqtt.loop_start()
             self.mqtt.will_set(
                 self.state_topic,
@@ -137,10 +137,6 @@ class TrafficLight(MQTTItem):
         self.maxage = 4
         self.give_way = True
         self.temp_error = False
-        if self.mqtt:
-            self.mqtt.message_callback_add(
-                self.command_topic, self._process_mqtt_command
-            )
 
     def __set__(self):
         return f"TrafficLight(name={self.name}, self.lamp_currents)"
@@ -266,6 +262,10 @@ class TrafficLight(MQTTItem):
         Resets the traffic light
         """
         pass
+
+    def _do_subscriptions(self):
+        MQTTItem._do_subscriptions(self)
+        self.mqtt.message_callback_add(self.command_topic, self._process_mqtt_command)
 
 
 class TrafficLightController(MQTTItem):
