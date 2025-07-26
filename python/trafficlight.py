@@ -201,10 +201,10 @@ class TrafficLight(MQTTItem):
                 data["good"],
             )
         except KeyError as e:
-            if not data["alive"]:
+            if "alive" in data and not data["alive"]:
                 self.logger.warning("Remote light has lost MQTT connection")
             else:
-                raise e
+                self.logger.error("Bad state received")
 
     def set_config(self, param, value):
         # Dummy to be overloaded by real implementations
