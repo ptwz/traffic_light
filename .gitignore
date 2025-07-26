@@ -1,7 +1,2 @@
-.*swp
-*.hex
-*.cod
-*.pyc
-*.aux
-*.log
-*.toc
+# Created by venv; see https://docs.python.org/3/library/venv.html
+*

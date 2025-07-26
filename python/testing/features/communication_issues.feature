@@ -32,24 +32,3 @@ Feature: The system must be able to withstand communication issues in a safe and
                 | hangar         | railroad             | 60      |
                 | railroad       | hangar               | 60      |
 
-	@wip
-        Scenario: If the MQTT connection of a light becomes severed, the lights must resynchonize once the connection is restored
-                Given I have an mqtt server
-                And I have one traffic light called hangar with a controller
-                And I have one traffic light called railroad
-                When I turn the traffic light hangar on
-                And I turn the traffic light railroad on
-                And wait for hangar to settle
-                And wait for railroad to settle
-                Then the green light of hangar must be on permanently
-                And the green light of railroad must be on permanently
-                When I press the red button on the controller of hangar
-                And wait for hangar to settle
-                And wait for railroad to settle
-                Then the red light of hangar must be on permanently
-                And the red light of railroad must be on permanently
-                When I press the green button on the controller of hangar
-                And wait for hangar to settle
-                And wait for railroad to settle
-                Then the green light of hangar must be on permanently
-                And the green light of railroad must be on permanently
