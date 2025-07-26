@@ -42,6 +42,7 @@ def connect_mqtt():
 mqtt_conn = connect_mqtt()
 app = Flask(__name__, static_folder="../website")
 
+
 @app.route("/api/v1/states", methods=["GET"])
 def get_state():
     return jsonify(states), 200
@@ -59,11 +60,9 @@ def send_command():
     logger.debug("Published command!")
     return jsonify({"message": "ok"}), 200
 
-@app.route('/', defaults=dict(filename=None))
-@app.route('/<path:filename>', methods=['GET', 'POST'])
-def index(filename):
-    filename = filename or 'index.html'
-    if request.method == 'GET':
-        return send_from_directory('../website', filename)
 
-    return jsonify(request.data)
+@app.route("/", defaults=dict(filename=None))
+@app.route("/<path:filename>", methods=["GET"])
+def index(filename):
+    filename = filename or "index.html"
+    return send_from_directory("../website", filename)
