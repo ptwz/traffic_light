@@ -538,6 +538,8 @@ class TrafficLightSerial(TrafficLight):
         Establish a reader/writer thread
         """
         self.ser.close()
+        self.ser = serial.Serial(self.port, 4800)
+        self.ser.close()
         self.ser = serial.Serial(self.port, self.baud)
         self.send_update()
 
