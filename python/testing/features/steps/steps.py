@@ -140,14 +140,14 @@ def have_mqtt_server_delayed(context, delay):
                 pattern="ampel/#",
                 mode="deny",
             )
+        while True:
+            (command, arguments) = context.mqtt_auth_queue.get()
+            command(*arguments)
 
     # Now start mosquitto process
-    context.mqtt["daemon"] = None
-    if delay:
-        tmp = threading.Thread(target=delayed_start, daemon=True)
-        tmp.start()
-    else:
-        delayed_start()
+    context.mqtt_auth_queue = Queue()
+    context.mqtt_thread = threading.Thread(target=delayed_start, daemon=True)
+    context.mqtt_thread.start()
 
 
 @given("the PIC of {name} generates {seconds} seconds of garbled data")
@@ -180,15 +180,20 @@ def turn_light_on(context, name):
                 random.choice(string.ascii_lowercase) for i in range(16)
             ),
         }
-
-        dynsec.add_client(
-            "admin",
-            context.mqtt["adminpassword"],
-            mqtt_data["username"],
-            mqtt_data["password"],
-        )
+        context.mqtt_auth_queue.put((
+            dynsec.add_client,
+            (
+                "admin",
+                context.mqtt["adminpassword"],
+                mqtt_data["username"],
+                mqtt_data["password"],
+            ),
+        ))
         # By default, allow MQTT communication
-        dynsec.add_client_role("admin", context.mqtt["adminpassword"], name, "mqtt_ok")
+        context.mqtt_auth_queue.put((
+            dynsec.add_client_role,
+            ("admin", context.mqtt["adminpassword"], name, "mqtt_ok"),
+        ))
 
         env["MQTT_PASS"] = mqtt_data["password"]
 
@@ -284,16 +289,28 @@ def check_blink(context, color, name, duration):
 @when("the communication of {name} is interrupted for {duration} seconds")
 def comm_interrupted(context, name, duration):
     assert name in context.traffic_lights
-    dynsec.remove_client_role("admin", context.mqtt["adminpassword"], name, "mqtt_ok")
-    dynsec.add_client_role("admin", context.mqtt["adminpassword"], name, "mqtt_fail")
+    context.mqtt_auth_queue.put((
+        dynsec.remove_client_role,
+        ("admin", context.mqtt["adminpassword"], name, "mqtt_ok"),
+    ))
+    context.mqtt_auth_queue.put((
+        dynsec.add_client_role,
+        ("admin", context.mqtt["adminpassword"], name, "mqtt_fail"),
+    ))
     time.sleep(int(duration))
 
 
 @when("the communication of {name} is restored")
 def comm_fixed(context, name):
     assert name in context.traffic_lights
-    dynsec.remove_client_role("admin", context.mqtt["adminpassword"], name, "mqtt_fail")
-    dynsec.add_client_role("admin", context.mqtt["adminpassword"], name, "mqtt_ok")
+    context.mqtt_auth_queue.put((
+        dynsec.remove_client_role,
+        ("admin", context.mqtt["adminpassword"], name, "mqtt_fail"),
+    ))
+    context.mqtt_auth_queue.put((
+        dynsec.add_client_role,
+        ("admin", context.mqtt["adminpassword"], name, "mqtt_ok"),
+    ))
 
 
 @then("the {color} light of both lights must be on permanently")
