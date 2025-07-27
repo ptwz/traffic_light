@@ -12,6 +12,8 @@ import paho.mqtt.client as mqtt
 
 except_queue = queue.Queue()
 
+logging.basicConfig(level="DEBUG")
+
 
 def thread_except(args):
     import traceback
@@ -44,10 +46,11 @@ class MQTTItem:
 
     def _retry_connect_mqtt(self):
         # Thread called in case MQTT does not connect immediately
-        while True:
+        while not self._shutdown:
             time.sleep(1)
             try:
                 self._connect_mqtt()
+                self.logger.debug("MQTT OK!")
                 # On success -> exit
                 return
             except OSError:
@@ -58,6 +61,7 @@ class MQTTItem:
         mqtt_param = self.mqtt_param
         if mqtt_param:
             # For clients with temporary name (listeners)
+            self.logger.debug("Connect mqtt: %s", mqtt_param)
             if not self._anonymous:
                 if "name" in mqtt_param:
                     name = mqtt_param["name"]
@@ -74,6 +78,7 @@ class MQTTItem:
             self.mqtt.on_disconnect = self._mqtt_disconnected
             self.mqtt.on_connect_fail = self._mqtt_fail
             self.mqtt.connect(mqtt_param["host"], mqtt_param["port"])
+            self.logger.debug("Connected!")
             # TODO Enable TLS if necessary!!!
             self.mqtt.loop_start()
             self.mqtt.will_set(
@@ -216,6 +221,7 @@ class TrafficLight(MQTTItem):
                 data["last_seen"],
                 data["good"],
             )
+            self.logger.debug("Successfully received state")
         except KeyError as e:
             if "alive" in data and not data["alive"]:
                 self.logger.warning("Remote light has lost MQTT connection")
@@ -239,10 +245,14 @@ class TrafficLight(MQTTItem):
             self.send_update()
 
     def is_good(self):
+        self.logger.debug(
+            "is_good: self.state != 9:%s  self.seen(): %s", self.state != 9, self.seen()
+        )
         return (self.state != 9) and (self.seen())
 
     def set_temp_error(self, error_state):
         assert type(error_state) in (bool, int)
+        self.logger.debug("set_temp_error: %s", error_state)
         error_state = bool(error_state)
         if self.temp_error != error_state:
             if error_state:
