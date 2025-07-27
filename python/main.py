@@ -17,7 +17,7 @@ parser.add_argument("-c", "--controller", action="store_true")
 
 args = parser.parse_args()
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=args.log_level)
 
 if "MQTT_PASS" not in os.environ:
     print("Please set MQTT_PASS environment variable")
