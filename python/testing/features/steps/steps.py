@@ -6,9 +6,10 @@ import time
 import string
 import random
 import os
+from queue import Queue
 import signal
 import testing.mosquitto_dynsec as dynsec
-import logging
+import threading
 import sys
 from testing.simulate_hw import SimLight, SimController
 
@@ -49,6 +50,11 @@ def named_traffic_light(context, name):
 
 @given("I have an mqtt server")
 def have_mqtt_server(context):
+    have_mqtt_server_delayed(context, 0)
+
+
+@given("I have an mqtt server coming up delayed by {delay} seconds")
+def have_mqtt_server_delayed(context, delay):
     context.mqtt = {
         "server_task": None,
         "port": 1883,
@@ -84,47 +90,71 @@ def have_mqtt_server(context):
         stderr=subprocess.DEVNULL,
     )
 
-    # Now start mosquitto process
-    context.mqtt["daemon"] = subprocess.Popen(
-        ["mosquitto", "-c", "/tmp/mosquitto.conf"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        # stderr=sys.stdout,
-    )
-    # Give server some time to start up
-    time.sleep(1)
-    # TODO: Wait for ready output instead of sleeping randomly
+    def delayed_start():
+        time.sleep(int(delay))
+        context.mqtt["daemon"] = subprocess.Popen(
+            ["mosquitto", "-c", "/tmp/mosquitto.conf"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            # stderr=sys.stdout,
+        )
+        # Give server some time to start up
+        time.sleep(1)
+        # TODO: Wait for ready output instead of sleeping randomly
 
-    # Set up roles for failed and working MQTT
-    dynsec.add_role(
-        "admin",
-        context.mqtt["adminpassword"],
-        role_name="mqtt_ok",
-    )
-    for acltype in {"subscribePattern", "publishClientReceive", "publishClientSend"}:
-        dynsec.add_role_acl(
+        # Set up roles for failed and working MQTT
+        dynsec.add_role(
             "admin",
             context.mqtt["adminpassword"],
             role_name="mqtt_ok",
-            acltype=acltype,
-            pattern="ampel/#",
-            mode="allow",
         )
+        for acltype in {
+            "subscribePattern",
+            "publishClientReceive",
+            "publishClientSend",
+        }:
+            dynsec.add_role_acl(
+                "admin",
+                context.mqtt["adminpassword"],
+                role_name="mqtt_ok",
+                acltype=acltype,
+                pattern="ampel/#",
+                mode="allow",
+            )
 
-    dynsec.add_role(
-        "admin",
-        context.mqtt["adminpassword"],
-        role_name="mqtt_fail",
-    )
-    for acltype in {"subscribePattern", "publishClientReceive", "publishClientSend"}:
-        dynsec.add_role_acl(
+        dynsec.add_role(
             "admin",
             context.mqtt["adminpassword"],
             role_name="mqtt_fail",
-            acltype=acltype,
-            pattern="ampel/#",
-            mode="deny",
         )
+        for acltype in {
+            "subscribePattern",
+            "publishClientReceive",
+            "publishClientSend",
+        }:
+            dynsec.add_role_acl(
+                "admin",
+                context.mqtt["adminpassword"],
+                role_name="mqtt_fail",
+                acltype=acltype,
+                pattern="ampel/#",
+                mode="deny",
+            )
+
+    # Now start mosquitto process
+    context.mqtt["daemon"] = None
+    if delay:
+        tmp = threading.Thread(target=delayed_start, daemon=True)
+        tmp.start()
+    else:
+        delayed_start()
+
+
+@given("the PIC of {name} generates {seconds} seconds of garbled data")
+def garbled(context, name, seconds):
+    assert name in context.traffic_lights
+    seconds = int(seconds)
+    assert seconds > 0
 
 
 @given("the {color} bulb of {name} is defective")

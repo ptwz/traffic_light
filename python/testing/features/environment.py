@@ -18,7 +18,8 @@ def after_scenario(context, scenario):
         except AttributeError:
             pass
     try:
-        context.mqtt["daemon"].kill()
+        if context.mqtt["daemon"]:
+            context.mqtt["daemon"].kill()
         time.sleep(5)
         del context.mqtt
     except AttributeError:

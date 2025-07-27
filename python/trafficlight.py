@@ -493,7 +493,7 @@ class TrafficLightSerial(TrafficLight):
         TrafficLight.__init__(self, name, mqtt_param)
         self.rx_err = 0
         self.set_logger(logging.getLogger(name))
-        self.ser = serial.Serial(port, self.baud, timeout=1)
+        self.ser = serial.Serial(port, self.baud, timeout=2)
         self.set_port(port)
         self.set_reset(reset_pin)
         self.send_update()
@@ -504,7 +504,7 @@ class TrafficLightSerial(TrafficLight):
 
     def _rx_thread(self):
         while not self._shutdown:
-            line = self.ser.read_until(size=30)
+            line = self.ser.read_until(size=80)
             self.handle_line(line.decode("latin-1"))
 
     def _tx_thread(self):
@@ -532,14 +532,17 @@ class TrafficLightSerial(TrafficLight):
 
             self.publish()
             self.rx_err = 0
-        except (ValueError, UnicodeDecodeError):
+        except (ValueError, UnicodeDecodeError) as e:
             self.err()
-            self.logger.info("Received garbled line: %d -  %s", self.rx_err, line)
+            self.logger.info(
+                "Received garbled line: %d -  %s: %s", self.rx_err, line, e
+            )
 
     def err(self):
         self.rx_err += 1
         if self.rx_err > 10:
             self.reopen()
+            self.rx_err = 0
 
     def reopen(self):
         """

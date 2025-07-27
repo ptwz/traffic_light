@@ -4,6 +4,7 @@ import time
 import pty
 import select
 import logging
+import random
 
 STATE_MAP = {
     "TRAFFIC_TEST_RED": 0,
@@ -124,6 +125,7 @@ class SimLight(SimBase):
         self.red = 0
         self.yellow = 0
         self.green = 0
+        self.garble_until = 0
 
     def process(self, line):
         """Emulate the "serial_statemachine" for the JAL-Firmware"""
@@ -264,6 +266,9 @@ class SimLight(SimBase):
             raise KeyError(name)
         self.bulb_resistance[name] = 1
 
+    def garble(self, seconds):
+        self.garble_until = time.time() + seconds
+
     def emulate_hardware(self):
         self.batt_voltage -= self.discarge_rate
         tmp = {}
@@ -294,5 +299,7 @@ class SimLight(SimBase):
 
             if self.ready:
                 telegram = f"{STATE_MAP[self.traffic_state]} {self.batt_voltage} {self.error_state} {self.sense['red']} {self.sense['yellow']} {self.sense['green']}\r\n"
-
-                os.write(self.pipe, telegram.encode("latin-1"))
+                if self.garble_until > time.time():
+                    os.write(self.pipe, random.randbytes(random.randint(1, 100)))
+                else:
+                    os.write(self.pipe, telegram.encode("latin-1"))
