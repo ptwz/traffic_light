@@ -47,17 +47,20 @@ class MQTTItem:
         cls.mqtt.on_connect_fail = cls._mqtt_fail
 
         def worker():
-            # Try to connect to MQTT first
             while not cls._shutdown:
-                try:
-                    cls._connect_mqtt()
-                    logging.debug("MQTT OK!")
-                    break
-                    # On success -> next steps
-                except OSError:
-                    time.sleep(1)
+                time.sleep(1)
+                # Try to (re)connect to MQTT first
+                if not cls._connected:
+                    try:
+                        cls._connect_mqtt()
+                        cls._connected = True
+                        logging.info("MQTT OK!")
+                    except OSError:
+                        pass
                 while cls._connected:
-                    time.sleep(1)
+                    time.sleep(5)
+                    cls._do_subscriptions()
+                    # Ensure we sent our will
                     if cls._mqtt_will[0]:
                         cls.mqtt.set_will(
                             cls._mqtt_will[0],
@@ -65,13 +68,6 @@ class MQTTItem:
                             qos=2,
                             retain=True,
                         )
-                    cls._do_subscriptions()
-                # Now we're connected, keep subscriptions comming, if necessary
-                while not cls._shutdown:
-                    time.sleep(0.5)
-                    cls._do_subscriptions()
-                # Now handle shutdown
-                cls._mqtt_disconnected()
 
         cls.mqtt_param = mqtt_param
         cls.mqtt_daemon_thread = threading.Thread(target=worker, daemon=True)
