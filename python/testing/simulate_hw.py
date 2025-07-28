@@ -153,6 +153,7 @@ class SimLight(SimBase):
 
     def traffic_statemachine(self):
         oldstate = self.traffic_state
+        logging.debug(self.traffic_state)
         if self.traffic_state == "TRAFFIC_TEST_RED":
             self.red = 1
             self.yellow = 0
@@ -255,6 +256,9 @@ class SimLight(SimBase):
     def is_on(self, color):
         self.emulate_hardware()
         return self.sense[color] > 500
+
+    def get_color_states(self):
+        return {name: value > 500 for name, value in self.sense.items()}
 
     def fail_bulb(self, name):
         if name not in self.bulb_resistance:

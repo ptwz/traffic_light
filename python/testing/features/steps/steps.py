@@ -7,7 +7,7 @@ import string
 import random
 import os
 from queue import Queue
-import signal
+import logging
 import testing.mosquitto_dynsec as dynsec
 import threading
 import sys
@@ -91,12 +91,13 @@ def have_mqtt_server_delayed(context, delay):
     )
 
     def delayed_start():
+        logging.debug("Starting MQTT broker")
         time.sleep(int(delay))
         context.mqtt["daemon"] = subprocess.Popen(
             ["mosquitto", "-c", "/tmp/mosquitto.conf"],
+            # stderr=subprocess.STDOUT,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            # stderr=sys.stdout,
         )
         # Give server some time to start up
         time.sleep(1)
@@ -142,12 +143,20 @@ def have_mqtt_server_delayed(context, delay):
             )
         while True:
             (command, arguments) = context.mqtt_auth_queue.get()
+            logging.debug("Loading ACL: %s", arguments)
             command(*arguments)
 
     # Now start mosquitto process
     context.mqtt_auth_queue = Queue()
     context.mqtt_thread = threading.Thread(target=delayed_start, daemon=True)
     context.mqtt_thread.start()
+    mqtt_data = {
+        "host": "127.0.0.1",
+        "port": context.mqtt["port"],
+        "username": context.mqtt["username"],
+        "password": context.mqtt["password"],
+    }
+    trafficlight.MQTTItem.mqtt_daemon("testing", mqtt_data)
 
 
 @given("the PIC of {name} generates {seconds} seconds of garbled data")
@@ -211,16 +220,12 @@ def turn_light_on(context, name):
             "-u",
             mqtt_data["username"],
         ]
+        if light["controller"]:
+            args += ["-c", "-C", light["controller"].pts]
         light["comm"] = subprocess.Popen(
             args,
             env=env,
         )
-
-        if light["controller"]:
-            light["controller_comm"] = trafficlight.TrafficLightController(
-                name + "-controller", mqtt_data, port=light["controller"].pts
-            )
-            light["controller_comm"].connect()
 
     light["hardware"].switch_on()
     # Start up hardware first, then bring up "pi" if any
@@ -316,7 +321,10 @@ def comm_fixed(context, name):
 @then("the {color} light of both lights must be on permanently")
 def check_all_on(context, color):
     for name, light in context.traffic_lights.items():
-        assert light["hardware"].is_on(color), f"{name} should be permanently {color}"
+        hw = light["hardware"]
+        assert hw.is_on(color), (
+            f"{name} should be permanently {color}. State {hw.get_color_states()}"
+        )
 
 
 @then("the {color} light of {name} must be on permanently")

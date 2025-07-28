@@ -2,7 +2,7 @@ import argparse
 import os
 import time
 import logging
-from trafficlight import TrafficLightGroup, TrafficLightController
+from trafficlight import TrafficLightGroup, TrafficLightController, MQTTItem
 
 parser = argparse.ArgumentParser(description="Trafflic light controller")
 
@@ -14,6 +14,7 @@ parser.add_argument("-l", "--log-level")
 parser.add_argument("-u", "--username")
 parser.add_argument("-p", "--port", default=1883, type=int)
 parser.add_argument("-c", "--controller", action="store_true")
+parser.add_argument("-C", "--controller-port", default="auto")
 
 args = parser.parse_args()
 
@@ -29,9 +30,11 @@ mqtt_param = {
     "port": args.port,
 }
 
-group = TrafficLightGroup(args.name, args.tty, args.remotename, mqtt_param)
+MQTTItem.mqtt_daemon(args.name, mqtt_param)
+
+group = TrafficLightGroup(args.name, args.tty, args.remotename)
 if args.controller:
-    controller = TrafficLightController(args.name + "-controller", mqtt_param)
+    controller = TrafficLightController(args.name + "-controller", args.controller_port)
 else:
     controller = None
 

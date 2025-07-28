@@ -12,4 +12,4 @@ ADD python /opt/ampel/
 
 USER ampel
 
-# ENTRYPOINT sh /opt/ampel/testing/run_tests.sh
+ENTRYPOINT sh /opt/ampel/testing/run_tests.sh

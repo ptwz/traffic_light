@@ -7,12 +7,11 @@ import time
 import serial
 import threading
 import queue
-import os
 import paho.mqtt.client as mqtt
 
 except_queue = queue.Queue()
 
-logging.basicConfig(level="DEBUG")
+logging.basicConfig(level="INFO")
 
 
 def thread_except(args):
@@ -27,91 +26,118 @@ threading.excepthook = thread_except
 
 
 class MQTTItem:
-    def __init__(self, name, mqtt_param, anonymous=False):
-        self.mqtt_param = mqtt_param
+    command_topic = "ampel/command"
+    _shutdown = False
+    _connected = False
+    # A set of tuples containing a topic and the respective callback
+    _topics = set()
+    _topics_subscribed = set()
+    _mqtt_will = (None, None)
+    logger = logging.getLogger("MQTTItem")
+
+    @classmethod
+    def mqtt_daemon(cls, name, mqtt_param):
+        cls.mqtt = mqtt.Client(client_id=name)
+        cls.mqtt.username_pw_set(
+            username=mqtt_param["username"], password=mqtt_param["password"]
+        )
+        # cls.mqtt.on_message = cls._process_mqtt
+        cls.mqtt.on_connect = cls._mqtt_connected
+        cls.mqtt.on_disconnect = cls._mqtt_disconnected
+        cls.mqtt.on_connect_fail = cls._mqtt_fail
+
+        def worker():
+            # Try to connect to MQTT first
+            while not cls._shutdown:
+                try:
+                    cls._connect_mqtt()
+                    logging.debug("MQTT OK!")
+                    break
+                    # On success -> next steps
+                except OSError:
+                    time.sleep(1)
+                while cls._connected:
+                    time.sleep(1)
+                    if cls._mqtt_will[0]:
+                        cls.mqtt.set_will(
+                            cls._mqtt_will[0],
+                            payload=cls._mqtt_will[1],
+                            qos=2,
+                            retain=True,
+                        )
+                    cls._do_subscriptions()
+                # Now we're connected, keep subscriptions comming, if necessary
+                while not cls._shutdown:
+                    time.sleep(0.5)
+                    cls._do_subscriptions()
+                # Now handle shutdown
+                cls._mqtt_disconnected()
+
+        cls.mqtt_param = mqtt_param
+        cls.mqtt_daemon_thread = threading.Thread(target=worker, daemon=True)
+        cls.mqtt_daemon_thread.start()
+
+    def subscribe(self, topic, callback):
+        # Add topic to client, does not mean we're subscribed yet
+        self.logger.debug("Subscribe %s", topic)
+        self.mqtt.message_callback_add(topic, callback)
+        # Now add topic to set
+        self._topics.add(topic)
+
+    def __init__(self, name, anonymous=False):
         self.name = name
-        self._shutdown = False
-        self._anonymous = anonymous
-        self._connected = False
         self.state_topic = f"ampel/{self.name}/state"
-        self.command_topic = "ampel/command"
-        try:
-            self._connect_mqtt()
-        except OSError:
-            # In case MQTT does not come up, run helper in background
-            self.retry_thread = threading.Thread(
-                target=self._retry_connect_mqtt, daemon=True
-            )
-            self.retry_thread.start()
 
-    def _retry_connect_mqtt(self):
-        # Thread called in case MQTT does not connect immediately
-        while not self._shutdown:
-            time.sleep(1)
-            try:
-                self._connect_mqtt()
-                self.logger.debug("MQTT OK!")
-                # On success -> exit
-                return
-            except OSError:
-                # In case MQTT does not come up
-                pass
-
-    def _connect_mqtt(self):
-        mqtt_param = self.mqtt_param
+    @classmethod
+    def _connect_mqtt(cls):
+        mqtt_param = cls.mqtt_param
         if mqtt_param:
             # For clients with temporary name (listeners)
-            self.logger.debug("Connect mqtt: %s", mqtt_param)
-            if not self._anonymous:
-                if "name" in mqtt_param:
-                    name = mqtt_param["name"]
-                else:
-                    name = self.name
-            else:
-                name = None
-            self.mqtt = mqtt.Client(client_id=name)
-            self.mqtt.username_pw_set(
-                username=mqtt_param["username"], password=mqtt_param["password"]
-            )
-            # self.mqtt.on_message = self._process_mqtt
-            self.mqtt.on_connect = self._mqtt_connected
-            self.mqtt.on_disconnect = self._mqtt_disconnected
-            self.mqtt.on_connect_fail = self._mqtt_fail
-            self.mqtt.connect(mqtt_param["host"], mqtt_param["port"])
-            self.logger.debug("Connected!")
+            cls.logger.debug("Connect mqtt: %s", mqtt_param)
+            cls.mqtt.connect(mqtt_param["host"], mqtt_param["port"])
+            cls.logger.debug("Connected!")
             # TODO Enable TLS if necessary!!!
-            self.mqtt.loop_start()
-            self.mqtt.will_set(
-                self.state_topic,
-                payload=json.dumps({"alive": False}),
-                qos=2,
-                retain=True,
-            )
-
+            cls.mqtt.loop_start()
+            """
+            TODO: Make exactly _one_ will, maybe do it in TrafficLightSerial?!
+            """
         else:
-            self.mqtt = None
+            cls.mqtt = None
 
+    @classmethod
     def _mqtt_connected(
-        self, client, userdata, connect_flags, reason_code, properties=None
+        cls, client, userdata, connect_flags, reason_code, properties=None
     ):
-        self.logger.debug(self.name + " MQTT Connected")
-        self._do_subscriptions()
+        cls.logger.debug(" MQTT Connected")
+        # For now, we have not really subscribed anything
+        cls._topics_subscribed = set()
+        cls._do_subscriptions()
 
-    def _do_subscriptions(self):
-        self.logger.debug("Subscribe command")
-        self.mqtt.subscribe(self.command_topic)
+    @classmethod
+    def _do_subscriptions(cls):
+        todo = set(cls._topics - cls._topics_subscribed)
+        # TODO: Handle subscription failure?!
+        for topic in todo:
+            cls.mqtt.subscribe(topic)
+            cls.logger.debug("Really subscribe %s", topic)
+        cls._topics_subscribed = todo
 
-    def _mqtt_disconnected(self, client, userdata, rc, x=None, y=None, z=None):
-        self.logger.debug(" MQTT disconnect: %s", rc)
+    @classmethod
+    def _mqtt_disconnected(cls, client, userdata, rc, x=None, y=None, z=None):
+        cls.logger.debug(" MQTT disconnect: %s %s", rc, cls.mqtt_param)
+        cls._topics_subscribed = set()
 
-    def _mqtt_fail(self, client, userdata):
-        self.logger.warning("mqtt_fail: %s %s", client, userdata)
+    @classmethod
+    def _mqtt_fail(cls, client, userdata):
+        cls._connected = False
+        cls.logger.warning("mqtt_fail: %s %s", client, userdata)
 
-    def mqtt_disconnect(self):
+    @classmethod
+    def mqtt_disconnect(cls):
         try:
-            self.mqtt.disconnect()
-            self.mqtt.loop_stop()
-            del self.mqtt
+            cls.mqtt.disconnect()
+            cls.mqtt.loop_stop()
+            del cls.mqtt
         except AttributeError:
             # Disregard if there is no mqtt in the first place
             pass
@@ -128,13 +154,13 @@ class TrafficLight(MQTTItem):
     interfaces or virtual traffic lights.
     """
 
-    def __init__(self, name, mqtt_param, local=True):
+    def __init__(self, name, local=True):
         logname = name
         if not local:
             logname = "remote-" + logname
 
         self.logger = logging.getLogger(logname)
-        MQTTItem.__init__(self, name, mqtt_param, anonymous=not local)
+        MQTTItem.__init__(self, name, anonymous=not local)
         self.state = 99
         self.batt_voltage = 0
         self.lamp_currents = [0] * 3
@@ -145,15 +171,6 @@ class TrafficLight(MQTTItem):
 
     def __set__(self):
         return f"TrafficLight(name={self.name}, self.lamp_currents)"
-
-    def _process_mqtt_command(self, client, user_data, message):
-        self.logger.debug("TrafficLight got: %s ", message)
-        try:
-            cmd = json.loads(message.payload)
-        except json.JSONDecodeError:
-            self.logger.warning("Could not parse command JSON: %s", message.payload)
-            return
-        self.set_green(cmd["give_way"])
 
     def publish(self):
         self.logger.debug(self.state)
@@ -174,7 +191,7 @@ class TrafficLight(MQTTItem):
         self.logger.debug("Last seen since: %d", time.time() - self.last_seen)
         return (time.time() - self.last_seen) < self.maxage
 
-    def send_update():
+    def send_update(self):
         pass
 
     def to_json(self):
@@ -273,10 +290,6 @@ class TrafficLight(MQTTItem):
         """
         pass
 
-    def _do_subscriptions(self):
-        MQTTItem._do_subscriptions(self)
-        self.mqtt.message_callback_add(self.command_topic, self._process_mqtt_command)
-
 
 class TrafficLightController(MQTTItem):
     plausible_ports = [
@@ -289,21 +302,17 @@ class TrafficLightController(MQTTItem):
     ]
     baud = 19200
 
-    def __init__(self, name, mqtt_param, port=None):
-        self.logger = logging.getLogger(name)
-        MQTTItem.__init__(self, name, mqtt_param)
+    def __init__(self, name, port="auto"):
+        self.logger = logging.getLogger(name + "-controller")
+        MQTTItem.__init__(self, name)
         self.port = port
         self.serial = None
         self.light_status = {}
         self.ok = False
-
-    def _do_subscriptions(self):
-        self.logger.debug("Adding subscritions")
-        self.mqtt.subscribe("ampel/+/state")
-        self.mqtt.message_callback_add("ampel/+/state", self.handle_state)
+        self.subscribe("ampel/+/state", self.handle_state)
 
     def handle_state(self, client, user_data, message):
-        logging.debug("TrafficLightController got ", str(message))
+        logging.debug("TrafficLightController got %s", str(message))
         m = re.search(r"ampel/(.[a-zA-Z0-9/]+)/state", message.topic)
         if m:
             name = m.group(0)
@@ -313,8 +322,9 @@ class TrafficLightController(MQTTItem):
                 self.logger.error("Could not decode %s for %s", message.payload, name)
 
     def connect(self):
+        self.logger.debug("Connecting")
         ports = self.plausible_ports
-        if self.port:
+        if self.port != "auto":
             ports = [self.port] + ports
         self._shutdown = False
 
@@ -326,6 +336,7 @@ class TrafficLightController(MQTTItem):
                 self.tx_thread = threading.Thread(target=self._tx_thread, daemon=True)
                 self.tx_thread.start()
                 self.ok = True
+                self.logger.debug("Connected to %s", name)
                 return True
             except serial.SerialException:
                 continue
@@ -340,12 +351,14 @@ class TrafficLightController(MQTTItem):
             try:
                 char = self.serial.read(1)
                 if not len(char):
+                    self.logger.debug("No data received, shutting down")
                     self._shutdown = True
                     self.ok = False
             except serial.SerialException:
                 self.ok = False
                 self._shutdown = True
             if char:
+                self.logger.debug("Char received: %s", char)
                 self.char_received(char)
 
     def _tx_thread(self):
@@ -357,7 +370,7 @@ class TrafficLightController(MQTTItem):
         payload = json.dumps({"give_way": bool(give_way)})
         try:
             self.mqtt.publish(self.command_topic, payload, retain=True)
-            self.logger.debug("Published command!")
+            self.logger.debug("Published command: %s", payload)
         except AttributeError as e:
             """ If there is no MQTT connection, disregard """
             pass
@@ -391,10 +404,10 @@ class TrafficLightController(MQTTItem):
 
 
 class TrafficLightGroup:
-    def __init__(self, local_name, port, remote_name, mqtt_param):
+    def __init__(self, local_name, port, remote_name):
         self._shutdown = False
-        self.local = TrafficLightSerial(local_name, mqtt_param, port)
-        self.remote = TrafficLightRemote(remote_name, mqtt_param)
+        self.local = TrafficLightSerial(local_name, port)
+        self.remote = TrafficLightRemote(remote_name)
         self._check = threading.Thread(target=self._check_thread, daemon=True)
         self._check.start()
         self.logger = logging.getLogger("TrafficLightGroup " + local_name)
@@ -462,18 +475,10 @@ class TrafficLightRemote(TrafficLight):
     Gets remote's traffic light status via MQTT
     """
 
-    def __init__(self, name, mqtt_param, interval=10):
+    def __init__(self, name, interval=10):
         self._is_good = False
-        if mqtt_param is not None:
-            mqtt_param["name"] = "".join(
-                random.choices("abcdefghijklmnopqrstuvwxyz", k=10)
-            )
-        TrafficLight.__init__(self, name, mqtt_param, local=False)
-        self.mqtt.message_callback_add(self.state_topic, self._process_mqtt_state)
-
-    def _do_subscriptions(self):
-        self.logger.debug("subscribe to: %s", self.state_topic)
-        self.mqtt.subscribe(self.state_topic)
+        TrafficLight.__init__(self, name, local=False)
+        self.subscribe(self.state_topic, self._process_mqtt_state)
 
     def _process_mqtt_state(self, client, user_data, message):
         self.logger.debug("Message : %s", message.payload)
@@ -499,8 +504,8 @@ class TrafficLightSerial(TrafficLight):
     def rx_thread(self):
         pass
 
-    def __init__(self, name, mqtt_param, port, reset_pin=None):
-        TrafficLight.__init__(self, name, mqtt_param)
+    def __init__(self, name, port, reset_pin=None):
+        TrafficLight.__init__(self, name)
         self.rx_err = 0
         self.set_logger(logging.getLogger(name))
         self.ser = serial.Serial(port, self.baud, timeout=2)
@@ -511,6 +516,20 @@ class TrafficLightSerial(TrafficLight):
         self.rx_thread.start()
         self.tx_thread = threading.Thread(target=self._tx_thread, daemon=True)
         self.tx_thread.start()
+
+        # This one defined our whole client's will
+        assert not self._mqtt_will[0]
+        self._mqtt_will = (self.state_topic, json.dumps({"alive": False}))
+        self.subscribe(self.command_topic, self._process_mqtt_command)
+
+    def _process_mqtt_command(self, client, user_data, message):
+        self.logger.debug("TrafficLight got: %s ", message)
+        try:
+            cmd = json.loads(message.payload)
+        except json.JSONDecodeError:
+            self.logger.warning("Could not parse command JSON: %s", message.payload)
+            return
+        self.set_green(cmd["give_way"])
 
     def _rx_thread(self):
         while not self._shutdown:

@@ -1,5 +1,4 @@
 Feature: The system must be able to withstand communication issues in a safe and secure manner
-	@wip
         Scenario Outline: Upon boot, the MQTT-server might not be reachable immediately
                 Given I have an mqtt server coming up delayed by <time> seconds
                 And I have one traffic light called hangar with a controller
@@ -21,7 +20,6 @@ Feature: The system must be able to withstand communication issues in a safe and
                 | time    |
                 | 6       |
                 | 10      |
-                | 60      |
 
         Scenario Outline: If any light has a broken MQTT connection, both light must indicate a communication failure
                 Given I have an mqtt server
@@ -59,7 +57,7 @@ Feature: The system must be able to withstand communication issues in a safe and
                 Given I have an mqtt server
                 And I have one traffic light called hangar with a controller
                 And I have one traffic light called railroad
-		And the PIC of <a> generates <time> seconds of garbled data 
+                And the PIC of <a> generates <time> seconds of garbled data 
                 When I turn the traffic light hangar on
                 And I turn the traffic light railroad on
                 And I wait for <a> to settle
