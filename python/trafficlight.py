@@ -90,7 +90,7 @@ class MQTTItem:
         if mqtt_param:
             # For clients with temporary name (listeners)
             cls.logger.debug("Connect mqtt: %s", mqtt_param)
-            cls.mqtt.connect(mqtt_param["host"], mqtt_param["port"])
+            cls.mqtt.connect(mqtt_param["host"], mqtt_param["port"], keepalive=10)
             cls.logger.debug("Connected!")
             # TODO Enable TLS if necessary!!!
             cls.mqtt.loop_start()
