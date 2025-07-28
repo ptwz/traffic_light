@@ -71,6 +71,7 @@ $("document").ready(function() {
                             for (var name in data){
                                 if (!(name in traffic_lights)) {
                                         let local_copy = skel.clone();
+                                        $(".name", local_copy).text(name);
                                         local_copy.attr("id", name);
                                         traffic_lights[name] = new traffic_light(name, local_copy);
                                         section.append(local_copy);
