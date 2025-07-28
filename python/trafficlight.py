@@ -94,9 +94,6 @@ class MQTTItem:
             cls.logger.debug("Connected!")
             # TODO Enable TLS if necessary!!!
             cls.mqtt.loop_start()
-            """
-            TODO: Make exactly _one_ will, maybe do it in TrafficLightSerial?!
-            """
         else:
             cls.mqtt = None
 
