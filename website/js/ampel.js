@@ -23,10 +23,15 @@ traffic_light = function (name, root_element) {
         this.update=function(data){
                 if (! me.loaded) return;
                 me.error_count = 0;
-                $(".battvoltage", me.root_element).val(data.batt_voltage/100.0);
-                if (data.lamp_currents[0]>10) me.red_circle.show(); else me.red_circle.hide();
-                if (data.lamp_currents[1]>10) me.yellow_circle.show(); else me.yellow_circle.hide();
-                if (data.lamp_currents[2]>10) me.green_circle.show(); else me.green_circle.hide();
+                if (!data.alive) {
+                        $(".inop", me.root_element).show();
+                } else {
+                        $(".inop", me.root_element).hide();
+                        $(".battvoltage", me.root_element).val(data.batt_voltage/100.0);
+                        if (data.lamp_currents[0]>10) me.red_circle.show(); else me.red_circle.hide();
+                        if (data.lamp_currents[1]>10) me.yellow_circle.show(); else me.yellow_circle.hide();
+                        if (data.lamp_currents[2]>10) me.green_circle.show(); else me.green_circle.hide();
+                }
 
         };
         $.ajax("/image/ampel.svg",
