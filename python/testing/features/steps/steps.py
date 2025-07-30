@@ -11,6 +11,7 @@ import logging
 import testing.mosquitto_dynsec as dynsec
 import threading
 import sys
+import requests
 from testing.simulate_hw import SimLight, SimController
 
 
@@ -46,6 +47,28 @@ def single_traffic_light(context, name):
 def named_traffic_light(context, name):
     assert name not in context.traffic_lights
     context.traffic_lights[name] = launch_trafficlight(context, name, True, False)
+
+
+@given("I have a webserver")
+def have_webserver(context):
+    port = 5000
+    env = {
+        "MQTT_HOST": "127.0.0.1",
+        "MQTT_PORT": str(context.mqtt["port"]),
+        "MQTT_USER": "admin",
+        "MQTT_PASS": context.mqtt["adminpassword"],
+    }
+    webserver = {
+        "port": port,
+        "process": subprocess.Popen(
+            ["flask", "--app", "webserver", "run", "--port", str(port)],
+            stderr=subprocess.STDOUT,
+            env=env,
+            # stdout=subprocess.DEVNULL,
+            # stderr=subprocess.DEVNULL,
+        ),
+    }
+    context.webserver = webserver
 
 
 @given("I have an mqtt server")
@@ -99,6 +122,7 @@ def have_mqtt_server_delayed(context, delay):
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+        # print("MQTT quit: ", context.mqtt["daemon"].wait())
         # Give server some time to start up
         time.sleep(1)
         # TODO: Wait for ready output instead of sleeping randomly
@@ -150,6 +174,8 @@ def have_mqtt_server_delayed(context, delay):
     context.mqtt_auth_queue = Queue()
     context.mqtt_thread = threading.Thread(target=delayed_start, daemon=True)
     context.mqtt_thread.start()
+    # TODO: Fix race condition
+    time.sleep(1)
     mqtt_data = {
         "host": "127.0.0.1",
         "port": context.mqtt["port"],
@@ -267,6 +293,24 @@ def wait_settle(context, name):
             states.pop(0)
         assert count < 30
     return
+
+
+@then("the webserver indicates that {name} is alive")
+def check_webserver_alive(context, name, alive=True):
+    answer = requests.get(
+        f"http://localhost:{context.webserver['port']}/api/v1/states",
+    )
+    print(answer)
+    print(answer.json())
+    result = answer.json()
+    assert result[f"ampel/{name}/state"]["alive"] == alive, (
+        f"The webserver reported {name} to be {alive}"
+    )
+
+
+@then("the webserver indicates that {name} is not alive")
+def check_webserver_not_alive(context, name):
+    check_webserver_alive(context, name, invert=False)
 
 
 @then("the {color} light of {name} must try to flash in {duration} second rhythm")
