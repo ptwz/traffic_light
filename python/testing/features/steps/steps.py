@@ -6,7 +6,7 @@ import time
 import string
 import random
 import os
-from queue import Queue
+from queue import Queue, Empty
 import logging
 import testing.mosquitto_dynsec as dynsec
 import threading
@@ -62,10 +62,9 @@ def have_webserver(context):
         "port": port,
         "process": subprocess.Popen(
             ["flask", "--app", "webserver", "run", "--port", str(port)],
-            stderr=subprocess.STDOUT,
             env=env,
-            # stdout=subprocess.DEVNULL,
-            # stderr=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         ),
     }
     context.webserver = webserver
@@ -112,20 +111,31 @@ def have_mqtt_server_delayed(context, delay):
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+    ready = threading.Event()
 
     def delayed_start():
         logging.debug("Starting MQTT broker")
         time.sleep(int(delay))
-        context.mqtt["daemon"] = subprocess.Popen(
+
+        def daemon_watcher():
+            for line in daemon.stderr:
+                logging.debug("mosquitto - %s", line)
+                if b"running" in line:
+                    ready.set()
+
+        daemon = subprocess.Popen(
             ["mosquitto", "-c", "/tmp/mosquitto.conf"],
-            # stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
         )
+        threading.Thread(target=daemon_watcher, daemon=True).start()
+        ready.wait()
+
+        context.mqtt["daemon"] = daemon
+        # Wait for daemon to report ready for duty
+        logging.debug("mosquitto broker daemon started")
         # print("MQTT quit: ", context.mqtt["daemon"].wait())
         # Give server some time to start up
-        time.sleep(1)
-        # TODO: Wait for ready output instead of sleeping randomly
 
         # Set up roles for failed and working MQTT
         dynsec.add_role(
@@ -166,16 +176,19 @@ def have_mqtt_server_delayed(context, delay):
                 mode="deny",
             )
         while True:
-            (command, arguments) = context.mqtt_auth_queue.get()
-            logging.debug("Loading ACL: %s", arguments)
-            command(*arguments)
+            try:
+                (command, arguments) = context.mqtt_auth_queue.get(timeout=0.2)
+                logging.debug("Loading ACL: %s", arguments)
+                command(*arguments)
+            except Empty:
+                continue
 
     # Now start mosquitto process
     context.mqtt_auth_queue = Queue()
     context.mqtt_thread = threading.Thread(target=delayed_start, daemon=True)
     context.mqtt_thread.start()
-    # TODO: Fix race condition
-    time.sleep(1)
+    # If no delay was intended, wait at least until mosquitto starts up
+    ready.wait()
     mqtt_data = {
         "host": "127.0.0.1",
         "port": context.mqtt["port"],
@@ -300,17 +313,15 @@ def check_webserver_alive(context, name, alive=True):
     answer = requests.get(
         f"http://localhost:{context.webserver['port']}/api/v1/states",
     )
-    print(answer)
-    print(answer.json())
     result = answer.json()
     assert result[f"ampel/{name}/state"]["alive"] == alive, (
-        f"The webserver reported {name} to be {alive}"
+        f"The webserver reported {name} to be {alive}, report was {result}"
     )
 
 
 @then("the webserver indicates that {name} is not alive")
 def check_webserver_not_alive(context, name):
-    check_webserver_alive(context, name, invert=False)
+    check_webserver_alive(context, name, alive=False)
 
 
 @then("the {color} light of {name} must try to flash in {duration} second rhythm")

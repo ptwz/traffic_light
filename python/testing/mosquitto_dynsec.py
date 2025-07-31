@@ -2,7 +2,17 @@ import subprocess
 
 
 def _base_cmd(admin_name, admin_pass):
-    return ["mosquitto_ctrl", "-u", admin_name, "-P", admin_pass]
+    return [
+        "mosquitto_ctrl",
+        "-h",
+        "127.0.0.1",
+        "-p",
+        "1883",
+        "-u",
+        admin_name,
+        "-P",
+        admin_pass,
+    ]
 
 
 def add_client(admin_name, admin_pass, user, password, clientid=None):
@@ -17,8 +27,8 @@ def add_client(admin_name, admin_pass, user, password, clientid=None):
         args += ["-i", clientid]
     process = subprocess.Popen(
         args,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        #        stdout=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT,
     )
     assert process.wait() == 0, f"Command {args} failed"
 
