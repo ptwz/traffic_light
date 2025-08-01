@@ -29,3 +29,8 @@ def after_scenario(context, scenario):
         del context.mqtt
     except AttributeError:
         pass
+    try:
+        context.mqtt_auth_queue.shutdown(immediate=True)
+        del context.mqtt_auth_queue
+    except AttributeError:
+        pass
