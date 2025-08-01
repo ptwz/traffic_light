@@ -27,8 +27,8 @@ def add_client(admin_name, admin_pass, user, password, clientid=None):
         args += ["-i", clientid]
     process = subprocess.Popen(
         args,
-        #        stdout=subprocess.DEVNULL,
-        stderr=subprocess.STDOUT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
     assert process.wait() == 0, f"Command {args} failed"
 
