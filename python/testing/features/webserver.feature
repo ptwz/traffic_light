@@ -30,8 +30,8 @@ Feature: Webserver
                 And I turn the traffic light railroad on
                 And wait for hangar to settle
                 And wait for railroad to settle
-                And the webserver indicates that <b> is alive
-                And the communication of <a> is interrupted for <time> seconds
+                Then the webserver indicates that <b> is alive
+                When the communication of <a> is interrupted for <time> seconds
                 Then the yellow light of <a> must try to flash in 2 second rhythm
                 And the yellow light of <b> must try to flash in 2 second rhythm
                 And the webserver indicates that <b> is not alive
@@ -47,8 +47,8 @@ Feature: Webserver
                 And wait for hangar to settle
                 And wait for railroad to settle
                 Then the green light of both lights must be on permanently
-                And the webserver indicates that <a> is alive
-                And the webserver indicates that <b> is alive
+                And webserver indicates that <a> is alive
+                And webserver indicates that <b> is alive
 
                 Examples:
                 | a              | b                    | time    |

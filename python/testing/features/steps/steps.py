@@ -112,6 +112,7 @@ def have_mqtt_server_delayed(context, delay):
         stderr=subprocess.DEVNULL,
     )
     ready = threading.Event()
+    context.mqtt_auth_queue = Queue()
 
     def delayed_start():
         logging.debug("Starting MQTT broker")
@@ -184,11 +185,10 @@ def have_mqtt_server_delayed(context, delay):
                 continue
 
     # Now start mosquitto process
-    context.mqtt_auth_queue = Queue()
     context.mqtt_thread = threading.Thread(target=delayed_start, daemon=True)
     context.mqtt_thread.start()
-    # If no delay was intended, wait at least until mosquitto starts up
-    ready.wait()
+    if not delay:
+        ready.wait()
     mqtt_data = {
         "host": "127.0.0.1",
         "port": context.mqtt["port"],
@@ -228,20 +228,24 @@ def turn_light_on(context, name):
                 random.choice(string.ascii_lowercase) for i in range(16)
             ),
         }
-        context.mqtt_auth_queue.put((
-            dynsec.add_client,
-            (
-                "admin",
-                context.mqtt["adminpassword"],
-                mqtt_data["username"],
-                mqtt_data["password"],
-            ),
-        ))
-        # By default, allow MQTT communication
-        context.mqtt_auth_queue.put((
-            dynsec.add_client_role,
-            ("admin", context.mqtt["adminpassword"], name, "mqtt_ok"),
-        ))
+        try:
+            context.mqtt_auth_queue.put((
+                dynsec.add_client,
+                (
+                    "admin",
+                    context.mqtt["adminpassword"],
+                    mqtt_data["username"],
+                    mqtt_data["password"],
+                ),
+            ))
+            # By default, allow MQTT communication
+            context.mqtt_auth_queue.put((
+                dynsec.add_client_role,
+                ("admin", context.mqtt["adminpassword"], name, "mqtt_ok"),
+            ))
+        except AttributeError:
+            # Will most likely be raised by accessing mqtt_auth_queue w/o ruinning mqtt
+            pass
 
         env["MQTT_PASS"] = mqtt_data["password"]
 
@@ -309,6 +313,7 @@ def wait_settle(context, name):
 
 
 @then("the webserver indicates that {name} is alive")
+@then("webserver indicates that {name} is alive")
 def check_webserver_alive(context, name, alive=True):
     answer = requests.get(
         f"http://localhost:{context.webserver['port']}/api/v1/states",
@@ -320,6 +325,7 @@ def check_webserver_alive(context, name, alive=True):
 
 
 @then("the webserver indicates that {name} is not alive")
+@then("webserver indicates that {name} is not alive")
 def check_webserver_not_alive(context, name):
     check_webserver_alive(context, name, alive=False)
 
