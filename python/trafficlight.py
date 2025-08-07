@@ -32,7 +32,7 @@ class MQTTItem:
     # A set of tuples containing a topic and the respective callback
     _topics = set()
     _topics_subscribed = set()
-    _mqtt_will = (None, None)
+    _mqtt_will = [None, None]
     logger = logging.getLogger("MQTTItem")
 
     @classmethod
@@ -62,10 +62,10 @@ class MQTTItem:
                     cls._do_subscriptions()
                     # Ensure we sent our will
                     if cls._mqtt_will[0]:
-                        cls.mqtt.set_will(
+                        cls.mqtt.will_set(
                             cls._mqtt_will[0],
                             payload=cls._mqtt_will[1],
-                            qos=2,
+                            qos=1,
                             retain=True,
                         )
 
@@ -512,7 +512,8 @@ class TrafficLightSerial(TrafficLight):
 
         # This one defined our whole client's will
         assert not self._mqtt_will[0]
-        self._mqtt_will = (self.state_topic, json.dumps({"alive": False}))
+        self._mqtt_will[0] = self.state_topic
+        self._mqtt_will[1] = json.dumps({"alive": False})
         self.subscribe(self.command_topic, self._process_mqtt_command)
 
     def _process_mqtt_command(self, client, user_data, message):
