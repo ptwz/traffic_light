@@ -63,8 +63,8 @@ def have_webserver(context):
         "process": subprocess.Popen(
             ["flask", "--app", "webserver", "run", "--port", str(port)],
             env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            # stdout=subprocess.DEVNULL,
+            # stderr=subprocess.DEVNULL,
         ),
     }
     context.webserver = webserver
@@ -269,6 +269,7 @@ def turn_light_on(context, name):
             args,
             env=env,
         )
+        light["comm_env"] = env
 
     light["hardware"].switch_on()
     # Start up hardware first, then bring up "pi" if any
@@ -319,6 +320,7 @@ def check_webserver_alive(context, name, alive=True):
         f"http://localhost:{context.webserver['port']}/api/v1/states",
     )
     result = answer.json()
+    print(result)
     assert result[f"ampel/{name}/state"]["alive"] == alive, (
         f"The webserver reported {name} to be {alive}, report was {result}"
     )
@@ -350,6 +352,21 @@ def check_blink(context, color, name, duration):
         assert count < 30, (
             "States not converging " + str(states) + " " + hw.traffic_state
         )
+
+
+@when("the light {name} crashes")
+@when("the light {name} crashed")
+def crash_trafficlight(context, name):
+    assert name in context.traffic_lights
+    light = context.traffic_lights[name]
+    light["comm"].kill()
+
+
+@when("the light {name} is restarted")
+def restart_trafficlight(context, name):
+    assert name in context.traffic_lights
+    light = context.traffic_lights[name]
+    light["comm"] = subprocess.Popen(light.comm["args"], env=light["comm_env"])
 
 
 @when("the communication of {name} is interrupted for {duration} seconds")
